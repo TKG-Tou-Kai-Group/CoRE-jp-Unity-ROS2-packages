@@ -1,3 +1,6 @@
 
 # Large generated mesh
 src/core_stage_description/meshes/Obj/core1-2026-field.obj
+
+# ローカルでビルドしたシミュレータ本体 (数百 MB)。docker イメージ内のものと同じ実行ファイル。
+/simulator/
