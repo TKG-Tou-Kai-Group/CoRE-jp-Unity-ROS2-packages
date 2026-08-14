@@ -158,7 +158,7 @@ Isaac 版と違い、Isaac Sim のイメージも NGC のアカウントも要�
 | センサ定義 | `sample_robot_description/isaac/*.isaac.xacro`（`<isaac>`） | `sample_robot_description/simulation/*.simulation.xacro`（`<simulation>`） |
 | 接触摩擦 | `<material>` 内の `<isaac_rigid_body>` | `<robot>` 直下の `<collision_material>` を `<collision>` から名前で参照 |
 | 試合リセット | 共有メモリ `isaac_sim_reset` | `reset_simulation` サービス（`SCOPE_STATE`） |
-| ステージの形式 | `meshes/USD/core_stage.usd` | `worlds/core_stage.world`（SDF）＋ `meshes/Dae/2024_CoRE_stage.dae` |
+| ステージの形式 | `meshes/USD/core_stage.usd` | `worlds/core_stage.world`（SDF）＋ `meshes/STL/core_stage_NN.stl` |
 
 センサのトピック名も変わっています。Isaac はリンクの親子関係がトピック名に入り
 `/<ロボット名>/base_link/camera_link/image_raw` でしたが、Unity 版は
@@ -166,14 +166,45 @@ Isaac 版と違い、Isaac Sim のイメージも NGC のアカウントも要�
 `/<ロボット名>/armor1_link/contact`（`std_msgs/Bool`）になります。
 `tools/*.html` と launch の remap はこの新しい名前に合わせてあります。
 
-### ステージの位置合わせについて
+### ステージの変換について
 
-Isaac 版のステージは USD（`core_stage.usd`）でしたが、Unity のシミュレータは USD を
-読めないため、同じ形状の Collada（`2024_CoRE_stage.dae`）を SDF ワールドから参照して
-います。フィールド中心が原点に来るよう、`worlds/core_stage.world` の `<pose>` で
-`(-7.519, -12.057, -0.015)` だけずらしています。
-**ステージのモデルを差し替えたときはこのオフセットを調整してください。**
-ロボットの開始位置は Isaac 版と同じ座標（x: ±4.5〜5.5、y: ±9.75〜11.25）のままです。
+Unity のシミュレータは USD を読めないので、Isaac 版が `bring_up_core_stage.launch.py`
+で開いている `meshes/USD/core_stage.usd` の中身を、
+[tools/convert_core_stage_usd.py](tools/convert_core_stage_usd.py) で SDF + STL へ
+変換したものを収録しています。中身は **2026 年フィールド**（`core1-2026-field.usd` の
+payload）＋ 壁 4 枚で、位置関係は Isaac と同一です。
+
+- フィールド 18.3 × 27.6 m、原点中心
+- 壁は x = ±10 m / y = ±14 m、高さ 5 m
+- 地面はシミュレータの組み込みシーンのものを使う
+
+ロボットの開始位置は Isaac 版と同じ座標（x: ±4.5〜5.5、y: ±9.75〜11.25）です。
+
+メッシュ形式に **STL** を選んでいるのは、シミュレータの SDF ローダが拡張子で読み方を
+変えており、STL だけが URDF インポータと同じ「頂点単位で ROS→Unity 変換する」経路を
+通るためです。Collada は GameObject の transform に回転を当てる実装で、その後の
+SDF pose の代入（`ObjectSpawner.ApplyTransform`）に上書きされ、**90 度傾いて表示されます**。
+
+STL は色を持たないので、マテリアルごとにファイルを分け、SDF 側の
+`<material><diffuse>` で色を与えています（16 ファイル / 14 色）。
+
+**視覚メッシュがそのまま当たり判定になります。** シミュレータは読み込んだメッシュの
+全 `MeshFilter` に `MeshCollider` を付けるため、SDF ワールドに視覚用と衝突用を分ける
+経路はありません。既定ではボルト類（外形 5 cm 未満、4996 メッシュ / 131 万三角形）を
+落として 168 万三角形にしてあります。全部入りにしたい場合や、さらに軽くしたい場合は
+`--min-size` を変えて再生成してください。
+
+```bash
+pip install --target /tmp/usdlib usd-core numpy
+PYTHONPATH=/tmp/usdlib python3 tools/convert_core_stage_usd.py \
+    --usd /path/to/CoRE-jp-Isaac-Sim-ROS2-packages/colcon_ws/src/core_stage_description/meshes/USD/core_stage.usd \
+    --out colcon_ws/src/core_stage_description \
+    --min-size 0.05
+```
+
+RViz 用の `urdf/core_stage.urdf.xacro` も同時に生成されるので、
+`ros2 launch core_stage_description marker_plate_description.launch.py` でも
+同じ形状が出ます。
 
 ## シミュレータを外部ネットワークの参加者と共有
 

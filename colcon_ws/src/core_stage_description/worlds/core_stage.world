@@ -1,21 +1,10 @@
 <?xml version="1.0" ?>
 <!--
-  CoRE ステージを Unity_ROS2_Robot_Simulator の `load_world` に読ませるための
-  SDF ワールドです。
+  core_stage.world — tools/convert_core_stage_usd.py が生成。手で編集しないこと。
 
-  シミュレータは SDF の「静的なサブセット」を景観オブジェクトへ変換します
-  (model / link / visual の pose を合成し、ROS Z-up から Unity 座標系へ変換)。
-  メッシュは `<uri>` の相対パスがこのファイルのディレクトリ基準で解決されるので、
-  インストール後の share/core_stage_description/ 配下でそのまま解決できます。
-
-  Collada は `<up_axis>` を尊重して読み込まれるため、2024_CoRE_stage.dae
-  (Z_UP, meter) は追加の回転なしで正しい向きになります。
-
-  <pose> の x/y はフィールド中心を原点へ持ってくるためのオフセットです。
-  メッシュ自身の footprint は x:[-0.04, 15.08] / y:[0.04, 24.08] なので、
-  中心の (7.519, 12.057) を引いています。z の -0.015 は Isaac 版の
-  core_stage.urdf.xacro と同じ、床の厚み分の沈め込みです。
-  ステージのモデルを差し替えたときはここを調整してください。
+  元データ: Isaac 版 core_stage.usd (2026 フィールドの payload + 地面 + 壁 4 枚)
+  メッシュは ROS 慣習 (Z-up, メートル) のバイナリ STL。シミュレータの STL ローダが
+  頂点単位で Unity 座標へ変換するので、<pose> は素の ROS 座標で書けばよい。
 -->
 <sdf version="1.7">
   <world name="core_stage">
@@ -26,24 +15,287 @@
       <direction>-0.4 0.3 -0.9</direction>
     </light>
 
-    <model name="core_stage">
+    <model name="core_stage_00">
       <static>true</static>
-      <pose>-7.519 -12.057 -0.015 0 0 0</pose>
-      <link name="stage_link">
-        <visual name="stage_visual">
+      <link name="link">
+        <visual name="visual">
           <geometry>
-            <mesh>
-              <uri>../meshes/Dae/2024_CoRE_stage.dae</uri>
-            </mesh>
+            <mesh><uri>../meshes/STL/core_stage_00.stl</uri></mesh>
           </geometry>
+          <material>
+            <diffuse>0.6863 0.6863 0.6863 1</diffuse>
+          </material>
         </visual>
-        <collision name="stage_collision">
+      </link>
+    </model>
+
+    <model name="core_stage_01">
+      <static>true</static>
+      <link name="link">
+        <visual name="visual">
           <geometry>
-            <mesh>
-              <uri>../meshes/Dae/2024_CoRE_stage.dae</uri>
-            </mesh>
+            <mesh><uri>../meshes/STL/core_stage_01.stl</uri></mesh>
           </geometry>
-        </collision>
+          <material>
+            <diffuse>0.6863 0.6863 0.6863 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="core_stage_02">
+      <static>true</static>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh><uri>../meshes/STL/core_stage_02.stl</uri></mesh>
+          </geometry>
+          <material>
+            <diffuse>0.6863 0.6863 0.6863 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="core_stage_03">
+      <static>true</static>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh><uri>../meshes/STL/core_stage_03.stl</uri></mesh>
+          </geometry>
+          <material>
+            <diffuse>0.7922 0.8196 0.9333 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="core_stage_04">
+      <static>true</static>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh><uri>../meshes/STL/core_stage_04.stl</uri></mesh>
+          </geometry>
+          <material>
+            <diffuse>0.7 0.7 0.7 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="core_stage_05">
+      <static>true</static>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh><uri>../meshes/STL/core_stage_05.stl</uri></mesh>
+          </geometry>
+          <material>
+            <diffuse>0.3137 0.4863 0.4118 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="core_stage_06">
+      <static>true</static>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh><uri>../meshes/STL/core_stage_06.stl</uri></mesh>
+          </geometry>
+          <material>
+            <diffuse>0.2471 0.2471 0.2471 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="core_stage_07">
+      <static>true</static>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh><uri>../meshes/STL/core_stage_07.stl</uri></mesh>
+          </geometry>
+          <material>
+            <diffuse>0.0 0.0 1.0 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="core_stage_08">
+      <static>true</static>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh><uri>../meshes/STL/core_stage_08.stl</uri></mesh>
+          </geometry>
+          <material>
+            <diffuse>0.6902 0.6902 0.6902 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="core_stage_09">
+      <static>true</static>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh><uri>../meshes/STL/core_stage_09.stl</uri></mesh>
+          </geometry>
+          <material>
+            <diffuse>1.0 1.0 1.0 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="core_stage_10">
+      <static>true</static>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh><uri>../meshes/STL/core_stage_10.stl</uri></mesh>
+          </geometry>
+          <material>
+            <diffuse>1.0 1.0 0.0 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="core_stage_11">
+      <static>true</static>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh><uri>../meshes/STL/core_stage_11.stl</uri></mesh>
+          </geometry>
+          <material>
+            <diffuse>0.298 0.298 0.298 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="core_stage_12">
+      <static>true</static>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh><uri>../meshes/STL/core_stage_12.stl</uri></mesh>
+          </geometry>
+          <material>
+            <diffuse>0.8235 0.8235 0.8235 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="core_stage_13">
+      <static>true</static>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh><uri>../meshes/STL/core_stage_13.stl</uri></mesh>
+          </geometry>
+          <material>
+            <diffuse>0.0941 0.1059 0.2196 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="core_stage_14">
+      <static>true</static>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh><uri>../meshes/STL/core_stage_14.stl</uri></mesh>
+          </geometry>
+          <material>
+            <diffuse>1.0 0.0 0.0431 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="core_stage_15">
+      <static>true</static>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh><uri>../meshes/STL/core_stage_15.stl</uri></mesh>
+          </geometry>
+          <material>
+            <diffuse>0.0 0.4471 1.0 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="Wall">
+      <static>true</static>
+      <pose>-10.0 0.0 2.5 0 0 0.0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <box><size>0.1 28.0 5.0</size></box>
+          </geometry>
+          <material>
+            <diffuse>0.35 0.35 0.38 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="Wall_01">
+      <static>true</static>
+      <pose>10.0 0.0 2.5 0 0 0.0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <box><size>0.1 28.0 5.0</size></box>
+          </geometry>
+          <material>
+            <diffuse>0.35 0.35 0.38 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="Wall_02">
+      <static>true</static>
+      <pose>0.0 14.0 2.5 0 0 1.570796</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <box><size>0.1 20.0 5.0</size></box>
+          </geometry>
+          <material>
+            <diffuse>0.35 0.35 0.38 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="Wall_03">
+      <static>true</static>
+      <pose>0.0 -14.0 2.5 0 0 1.570796</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <box><size>0.1 20.0 5.0</size></box>
+          </geometry>
+          <material>
+            <diffuse>0.35 0.35 0.38 1</diffuse>
+          </material>
+        </visual>
       </link>
     </model>
 

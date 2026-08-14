@@ -1,37 +1,189 @@
 <?xml version="1.0"?>
+<!--
+  core_stage.urdf.xacro — tools/convert_core_stage_usd.py が生成。手で編集しないこと。
+
+  RViz でステージを出すための URDF。シミュレータが読むのは worlds/*.world の
+  ほうで、こちらは可視化専用。SDF と同じ STL を色ごとの <visual> として並べる。
+-->
 <robot name="core_stage" xmlns:xacro="http://ros.org/wiki/xacro">
   <xacro:arg name="prefix" default="" />
   <xacro:arg name="use_sim" default="false" />
-  
-  <xacro:arg name="robot_name" default="core_stage"/>
 
-  <!-- Base -->
+  <material name="core_stage_00_material">
+    <color rgba="0.6863 0.6863 0.6863 1.0"/>
+  </material>
+  <material name="core_stage_01_material">
+    <color rgba="0.6863 0.6863 0.6863 1.0"/>
+  </material>
+  <material name="core_stage_02_material">
+    <color rgba="0.6863 0.6863 0.6863 1.0"/>
+  </material>
+  <material name="core_stage_03_material">
+    <color rgba="0.7922 0.8196 0.9333 1.0"/>
+  </material>
+  <material name="core_stage_04_material">
+    <color rgba="0.7 0.7 0.7 1.0"/>
+  </material>
+  <material name="core_stage_05_material">
+    <color rgba="0.3137 0.4863 0.4118 1.0"/>
+  </material>
+  <material name="core_stage_06_material">
+    <color rgba="0.2471 0.2471 0.2471 1.0"/>
+  </material>
+  <material name="core_stage_07_material">
+    <color rgba="0.0 0.0 1.0 1.0"/>
+  </material>
+  <material name="core_stage_08_material">
+    <color rgba="0.6902 0.6902 0.6902 1.0"/>
+  </material>
+  <material name="core_stage_09_material">
+    <color rgba="1.0 1.0 1.0 1.0"/>
+  </material>
+  <material name="core_stage_10_material">
+    <color rgba="1.0 1.0 0.0 1.0"/>
+  </material>
+  <material name="core_stage_11_material">
+    <color rgba="0.298 0.298 0.298 1.0"/>
+  </material>
+  <material name="core_stage_12_material">
+    <color rgba="0.8235 0.8235 0.8235 1.0"/>
+  </material>
+  <material name="core_stage_13_material">
+    <color rgba="0.0941 0.1059 0.2196 1.0"/>
+  </material>
+  <material name="core_stage_14_material">
+    <color rgba="1.0 0.0 0.0431 1.0"/>
+  </material>
+  <material name="core_stage_15_material">
+    <color rgba="0.0 0.4471 1.0 1.0"/>
+  </material>
+
   <link name="world"/>
 
-  <joint name="marker_joint" type="fixed">
+  <joint name="stage_joint" type="fixed">
     <parent link="world"/>
     <child  link="stage_link"/>
-    <origin xyz="0 0 -0.015" rpy="0 0 0"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
   </joint>
 
   <link name="stage_link">
     <visual>
-      <origin xyz="0 0 0" rpy="0 0 0" />
+      <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-	      <mesh filename="file://$(find core_stage_description)/meshes/Dae/2024_CoRE_stage.dae"/>
+        <mesh filename="file://$(find core_stage_description)/meshes/STL/core_stage_00.stl"/>
       </geometry>
+      <material name="core_stage_00_material"/>
     </visual>
-    <collision>
-      <origin xyz="0 0 0" rpy="0 0 0" />
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-	      <mesh filename="file://$(find core_stage_description)/meshes/Dae/2024_CoRE_stage.dae"/>
+        <mesh filename="file://$(find core_stage_description)/meshes/STL/core_stage_01.stl"/>
       </geometry>
-    </collision>
+      <material name="core_stage_01_material"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="file://$(find core_stage_description)/meshes/STL/core_stage_02.stl"/>
+      </geometry>
+      <material name="core_stage_02_material"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="file://$(find core_stage_description)/meshes/STL/core_stage_03.stl"/>
+      </geometry>
+      <material name="core_stage_03_material"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="file://$(find core_stage_description)/meshes/STL/core_stage_04.stl"/>
+      </geometry>
+      <material name="core_stage_04_material"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="file://$(find core_stage_description)/meshes/STL/core_stage_05.stl"/>
+      </geometry>
+      <material name="core_stage_05_material"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="file://$(find core_stage_description)/meshes/STL/core_stage_06.stl"/>
+      </geometry>
+      <material name="core_stage_06_material"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="file://$(find core_stage_description)/meshes/STL/core_stage_07.stl"/>
+      </geometry>
+      <material name="core_stage_07_material"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="file://$(find core_stage_description)/meshes/STL/core_stage_08.stl"/>
+      </geometry>
+      <material name="core_stage_08_material"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="file://$(find core_stage_description)/meshes/STL/core_stage_09.stl"/>
+      </geometry>
+      <material name="core_stage_09_material"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="file://$(find core_stage_description)/meshes/STL/core_stage_10.stl"/>
+      </geometry>
+      <material name="core_stage_10_material"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="file://$(find core_stage_description)/meshes/STL/core_stage_11.stl"/>
+      </geometry>
+      <material name="core_stage_11_material"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="file://$(find core_stage_description)/meshes/STL/core_stage_12.stl"/>
+      </geometry>
+      <material name="core_stage_12_material"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="file://$(find core_stage_description)/meshes/STL/core_stage_13.stl"/>
+      </geometry>
+      <material name="core_stage_13_material"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="file://$(find core_stage_description)/meshes/STL/core_stage_14.stl"/>
+      </geometry>
+      <material name="core_stage_14_material"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="file://$(find core_stage_description)/meshes/STL/core_stage_15.stl"/>
+      </geometry>
+      <material name="core_stage_15_material"/>
+    </visual>
     <inertial>
       <mass value="100000"/>
-      <inertia ixx="${100000/4}" ixy="0" ixz="0" 
-               iyy="${100000/4}" iyz="0" 
-               izz="${100000/4}"/>
+      <inertia ixx="25000" ixy="0" ixz="0"
+               iyy="25000" iyz="0"
+               izz="25000"/>
     </inertial>
   </link>
 
