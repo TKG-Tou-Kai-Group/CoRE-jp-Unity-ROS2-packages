@@ -1,0 +1,83 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://ros.org/wiki/xacro">
+  <xacro:macro name="pi" params="3.1415926535897931" />
+
+  <!--
+    接触摩擦の定義。Isaac 版は <material> に <isaac_rigid_body> をぶら下げて
+    いましたが、Unity_ROS2_Robot_Simulator は <robot> 直下の
+    <collision_material> を名前で参照する方式です (docs/URDF-Collision-Material.md)。
+    <isaac_rigid_body> はそのまま残してあります (Unity 側は読まずに無視する)。
+
+    combine は既定が average で、床のマテリアル (Unity 既定 0.6) と平均されて
+    しまうため、指定値をそのまま効かせたい床面接触には maximum を使います。
+    逆に低摩擦を効かせたいシュータ内部は minimum です。
+  -->
+  <xacro:macro name="sample_robot_collision_materials">
+    <!-- 車輪のバレル: 床をつかむ側。指定値を確実に効かせる -->
+    <collision_material name="wheel_barrel">
+      <friction static="1.0" dynamic="1.0" combine="maximum"/>
+    </collision_material>
+    <!-- 車体・バンパ・装甲 -->
+    <collision_material name="robot_body">
+      <friction static="1.0" dynamic="1.0" combine="maximum"/>
+    </collision_material>
+    <!-- シュータ内部: ディスクが引っ掛からないよう低摩擦にする -->
+    <collision_material name="shooter_unit">
+      <friction static="0.2" dynamic="0.0" combine="minimum"/>
+    </collision_material>
+  </xacro:macro>
+  <material name="gray">
+    <color rgba="0.6 0.6 0.6 1.0"/>
+    <isaac_rigid_body static_friction="1.0" dynamic_friction="1.0"/>
+  </material>
+  <material name="black">
+    <color rgba="0 0 0 1.0"/>
+    <isaac_rigid_body static_friction="1.0" dynamic_friction="1.0"/>
+  </material>
+  <material name="white">
+    <color rgba="1.0 1.0 1.0 1.0"/>
+    <isaac_rigid_body static_friction="1.0" dynamic_friction="1.0"/>
+  </material>
+  <material name="shooter_unit">
+    <color rgba="0.4 0.4 0.4 1.0"/>
+    <isaac_rigid_body static_friction="0.2" dynamic_friction="0.0"/>
+  </material>
+  <material name="red">
+    <color rgba="1.0 0 0 1.0"/>
+    <isaac_rigid_body static_friction="1.0" dynamic_friction="1.0"/>
+  </material>
+  <material name="light_red">
+    <color rgba="1.0 0.5 0.5 0.6"/>
+    <isaac_rigid_body static_friction="1.0" dynamic_friction="1.0"/>
+  </material>
+  <material name="orange">
+    <color rgba="1.0 0.5 0.0 1.0"/>
+    <isaac_rigid_body static_friction="1.0" dynamic_friction="1.0"/>
+  </material>
+  <material name="yellow">
+    <color rgba="1.0 1.0 0.0 1.0"/>
+    <isaac_rigid_body static_friction="1.0" dynamic_friction="1.0"/>
+  </material>
+  <material name="yellow_green">
+    <color rgba="0.5 1.0 0.0 1.0"/>
+    <isaac_rigid_body static_friction="1.0" dynamic_friction="1.0"/>
+  </material>
+
+  <material name="blue">
+    <color rgba="0.0 0.0 1.0 1.0"/>
+    <isaac_rigid_body static_friction="1.0" dynamic_friction="1.0"/>
+  </material>
+  <material name="light_blue">
+    <color rgba="0.5 0.5 1.0 0.6"/>
+    <isaac_rigid_body static_friction="1.0" dynamic_friction="1.0"/>
+  </material>
+  <material name="purple">
+    <color rgba="1.0 0.0 1.0 1.0"/>
+    <isaac_rigid_body static_friction="1.0" dynamic_friction="1.0"/>
+  </material>
+  <material name="blue_green">
+    <color rgba="0.0 1.0 0.5 1.0"/>
+    <isaac_rigid_body static_friction="1.0" dynamic_friction="1.0"/>
+  </material>
+
+</robot>

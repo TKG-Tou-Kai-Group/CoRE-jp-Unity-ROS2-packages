@@ -1,0 +1,103 @@
+# CoRE-jp-Unity-ROS2-packages の実行環境。
+#
+# Isaac 版は nvcr.io の isaac-sim イメージが土台でしたが、Unity 版のシミュレータは
+# 単体の Linux 実行ファイルなので、素の ros ベースイメージに実行ファイルを
+# 展開するだけで済みます。GPU は nvidia-container-runtime 経由で使います。
+#
+# ROS ディストロは引数で選べます (humble / jazzy)。ROS_DISTRO_ARG と
+# UBUNTU_CODENAME はベースイメージの選択にしか使わず、FROM 以降はベースイメージが
+# 設定する ${ROS_DISTRO} を使うので、両者がずれることはありません。
+ARG ROS_DISTRO_ARG=jazzy
+ARG UBUNTU_CODENAME=noble
+FROM ros:${ROS_DISTRO_ARG}-ros-base-${UBUNTU_CODENAME}
+
+# シミュレータのバージョン。scripts/run_simulator.sh の展開先と揃えること。
+ARG SIMULATOR_VERSION=v1.0.2
+
+# Arguments
+ARG USER=core
+ARG GROUP=core
+ARG UID=1000
+ARG GID=${UID}
+ARG SHELL=/bin/bash
+
+# apt のミラーを差し替える。24.04 (noble) は sources.list ではなく
+# /etc/apt/sources.list.d/ubuntu.sources (deb822) なので、在るほうを触る。
+RUN for f in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do \
+      if [ -f "$f" ]; then \
+        sed -i 's@archive.ubuntu.com@ftp.jaist.ac.jp/pub/Linux@g' "$f"; \
+      fi; \
+    done
+
+# Install packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget curl ssh unzip \
+    zsh terminator gnome-terminal git vim tig \
+    dbus-x11 libglvnd0 libgl1 libglx0 libegl1 libxext6 libx11-6 \
+    ros-${ROS_DISTRO}-desktop \
+    ros-${ROS_DISTRO}-ament-cmake ros-${ROS_DISTRO}-angles ros-${ROS_DISTRO}-controller-manager \
+    ros-${ROS_DISTRO}-pluginlib ros-${ROS_DISTRO}-urdf ros-${ROS_DISTRO}-yaml-cpp-vendor ros-${ROS_DISTRO}-joint-state-pub* \
+    ros-${ROS_DISTRO}-cv-bridge ros-${ROS_DISTRO}-diagnostic-updater \
+    ros-${ROS_DISTRO}-rosbridge-suite ros-${ROS_DISTRO}-urdf-launch \
+    ros-${ROS_DISTRO}-xacro ros-${ROS_DISTRO}-realtime-tools ros-${ROS_DISTRO}-control-toolbox ros-${ROS_DISTRO}-ros2-control* ros-${ROS_DISTRO}-ros-testing \
+    ros-${ROS_DISTRO}-teleop-twist-keyboard ros-${ROS_DISTRO}-teleop-twist-joy ros-${ROS_DISTRO}-joy \
+    ros-${ROS_DISTRO}-vision-msgs ros-${ROS_DISTRO}-image-transport* \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/*
+
+# core_jp_camera_viewer は Qt5 (Core/Gui/Widgets/OpenGL) と OpenGL/GLUT を、
+# core_jp_camera_publisher は OpenCV / Pillow と DejaVu フォント (HP 表示のオーバーレイが
+# /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf を直接開く) を必要とする。
+# 24.04 の pip は PEP 668 で system site-packages を触らないので、素の pip3 install が
+# 失敗したら --break-system-packages で入れ直す (22.04 の pip はこのフラグを知らない)。
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3-pip python3-opencv \
+    qtbase5-dev qtbase5-dev-tools libqt5opengl5-dev libqt5svg5-dev \
+    freeglut3-dev libglu1-mesa-dev libgl1-mesa-dev \
+    fonts-dejavu-core \
+  && (pip3 install -U pillow numpy \
+      || pip3 install -U --break-system-packages pillow numpy) \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/*
+
+# nvidia-container-runtime 用
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=graphics,utility,compute
+
+# ユーザとグループ。24.04 は uid/gid 1000 (ubuntu) が最初から居てホストの
+# ユーザとぶつかるので、作る前に消す。
+RUN if getent passwd ${UID} >/dev/null && [ "$(getent passwd ${UID} | cut -d: -f1)" != "${USER}" ]; then \
+      userdel -r "$(getent passwd ${UID} | cut -d: -f1)" 2>/dev/null || true; \
+    fi \
+  && if getent group ${GID} >/dev/null && [ "$(getent group ${GID} | cut -d: -f1)" != "${GROUP}" ]; then \
+      groupdel "$(getent group ${GID} | cut -d: -f1)" 2>/dev/null || true; \
+    fi \
+  && groupadd --gid ${GID} ${GROUP} \
+  && useradd --gid ${GID} --uid ${UID} -ms ${SHELL} ${USER} \
+  && mkdir -p /etc/sudoers.d \
+  && echo "${USER} ALL=(ALL) NOPASSWD: ALL" > "/etc/sudoers.d/${USER}" \
+  && chmod 0440 "/etc/sudoers.d/${USER}"
+
+RUN ln -s /usr/lib/x86_64-linux-gnu/libdl.so.2 /usr/lib/x86_64-linux-gnu/libdl.so
+
+USER ${USER}
+
+# シミュレータ本体。zip はバージョン名のディレクトリに展開される。
+RUN cd /home/${USER} && \
+  wget -q https://github.com/REACT-ROBOT/Unity_ROS2_Robot_Simulator/releases/download/${SIMULATOR_VERSION}/Unity_ROS2_Robot_Simulator_${SIMULATOR_VERSION}_Linux_amd64.zip && \
+  unzip -q Unity_ROS2_Robot_Simulator_${SIMULATOR_VERSION}_Linux_amd64.zip && \
+  rm Unity_ROS2_Robot_Simulator_${SIMULATOR_VERSION}_Linux_amd64.zip && \
+  chmod +x Unity_ROS2_Robot_Simulator_${SIMULATOR_VERSION}_Linux_amd64/Unity_ROS2_Robot_Simulator.x86_64
+
+EXPOSE 22
+# rosbridge (ブラウザ操縦)
+EXPOSE 9090
+# ROS-TCP-Endpoint (シミュレータとの接続)
+EXPOSE 10000
+
+WORKDIR /home/${USER}/colcon_ws
+
+RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> ~/.bashrc
+RUN echo "source /home/${USER}/colcon_ws/install/setup.sh" >> ~/.bashrc
+
+ENTRYPOINT ["/bin/bash"]

@@ -1,0 +1,366 @@
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image, CompressedImage
+from sensor_msgs.msg import Joy
+from std_msgs.msg import Int32
+import cv2
+import numpy as np
+from cv_bridge import CvBridge
+from ament_index_python.packages import get_package_share_directory
+import os
+from PIL import Image as PILImage, ImageDraw, ImageFont
+
+STATUS_DRAW =       -1
+STATUS_NORMAL =     0
+STATUS_RED_WIN =    1
+STATUS_BLUE_WIN =   2
+STATUS_ROBOT1_WIN = 3
+STATUS_ROBOT2_WIN = 4
+STATUS_ROBOT3_WIN = 5
+STATUS_ROBOT4_WIN = 6
+
+class ImageOverlayPublisher(Node):
+    def __init__(self):
+        super().__init__('image_overlay_publisher')
+        self.subscription = self.create_subscription(
+            Image,
+            'input_image_topic',
+            self.image_callback,
+            10)
+        self.top_view_subscription = self.create_subscription(
+            Image,
+            'top_view_image_topic',
+            self.top_view_image_callback,
+            10)
+        self.joy_subscription = self.create_subscription(
+            Joy,
+            'joy',
+            self.joy_callback,
+            10)
+        self.status_subscription = self.create_subscription(
+            Int32,
+            'game_status',
+            self.status_callback,
+            10)
+        self.time_subscription = self.create_subscription(
+            Int32,
+            'countdown',
+            self.countdown_callback,
+            10)
+        self.robot1_hp_subscription = self.create_subscription(
+            Int32,
+            'robot1_hp',
+            self.robot1_hp_callback,
+            10)
+        self.robot2_hp_subscription = self.create_subscription(
+            Int32,
+            'robot2_hp',
+            self.robot2_hp_callback,
+            10)
+        self.robot3_hp_subscription = self.create_subscription(
+            Int32,
+            'robot3_hp',
+            self.robot3_hp_callback,
+            10)
+        self.robot4_hp_subscription = self.create_subscription(
+            Int32,
+            'robot4_hp',
+            self.robot4_hp_callback,
+            10)
+        self.robot5_hp_subscription = self.create_subscription(
+            Int32,
+            'robot5_hp',
+            self.robot5_hp_callback,
+            10)
+        self.robot6_hp_subscription = self.create_subscription(
+            Int32,
+            'robot6_hp',
+            self.robot6_hp_callback,
+            10)
+        self.robot7_hp_subscription = self.create_subscription(
+            Int32,
+            'robot7_hp',
+            self.robot7_hp_callback,
+            10)
+        self.robot8_hp_subscription = self.create_subscription(
+            Int32,
+            'robot8_hp',
+            self.robot8_hp_callback,
+            10)
+        self.publisher = self.create_publisher(CompressedImage, 'output_image_topic', 10)
+        self.bridge = CvBridge()
+
+        package_share_directory = get_package_share_directory('core_jp_camera_publisher')
+        overlay_image_path = os.path.join(package_share_directory, 'data', 'Reticle.png')
+        self.overlay = cv2.imread(overlay_image_path, cv2.IMREAD_UNCHANGED)  # 透過PNGを読み込む
+
+        self.top_view_image = None
+        self.button4_pressed = False
+
+        self.game_status = STATUS_NORMAL
+        self.game_time = 0
+        self.robot_hp = [0,0,0,0,0,0,0,0]
+        self.max_robot_hp = [0,0,0,0,0,0,0,0]
+
+        self.declare_parameter('jpeg_quality', 50)
+
+        # フォントをキャッシュ（毎フレームのディスクI/Oを回避）
+        font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+        self._font_cache = {}
+        self._font_path = font_path
+
+    def _get_font(self, size):
+        """フォントをキャッシュから取得（サイズ別）"""
+        if size not in self._font_cache:
+            self._font_cache[size] = ImageFont.truetype(self._font_path, size)
+        return self._font_cache[size]
+
+    def image_callback(self, msg):
+        cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+
+        # 画像の高さと幅を取得
+        height, width, _ = cv_image.shape
+
+        if self.button4_pressed and self.top_view_image is not None:
+            # top_view_imageを左下に小さく表示
+            cv_image = self.overlay_top_view(cv_image, self.top_view_image)
+
+        # レティクルオーバーレイ（OpenCVで処理）
+        output_image = self.overlay_image(cv_image, self.overlay)
+
+        # PIL変換を1回だけ行い、全テキスト描画をまとめて実行
+        cv_image_rgb = cv2.cvtColor(output_image, cv2.COLOR_BGR2RGB)
+        pil_image = PILImage.fromarray(cv_image_rgb)
+        draw = ImageDraw.Draw(pil_image)
+
+        # カウントダウン描画
+        self._draw_countdown_on_pil(draw, width, height)
+
+        # ロボットステータス描画（720p対応: UIスケール0.75 = 元解像度の1.5倍）
+        ui_s = 0.75
+        rw = int(width / 6 * ui_s)   # パネル幅
+        rh = int(height / 10 * ui_s)  # パネル高さ
+        gap = int(10 * ui_s)          # パネル間の隙間
+        rx = width - rw - 10          # 右側パネルのX座標
+        for i, (name, idx) in enumerate([
+            ("sample_robot1", 1), ("sample_robot2", 2),
+            ("sample_robot3", 3), ("sample_robot4", 4),
+            ("sample_robot5", 5), ("sample_robot6", 6),
+            ("sample_robot7", 7), ("sample_robot8", 8),
+        ]):
+            row = i // 2
+            x = 10 if i % 2 == 0 else rx
+            y = 10 + row * (rh + gap)
+            self._draw_robot_status_on_pil(draw, name, idx, x, y, width, height, ui_s)
+
+        # 試合結果描画
+        self._draw_result_on_pil(draw, width, height)
+
+        # PIL→OpenCVに1回だけ変換
+        output_image = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+
+        # JPEG圧縮してCompressedImageとしてパブリッシュ
+        jpeg_quality = self.get_parameter('jpeg_quality').get_parameter_value().integer_value
+        encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), jpeg_quality]
+        _, buffer = cv2.imencode('.jpg', output_image, encode_param)
+
+        compressed_image_msg = CompressedImage()
+        compressed_image_msg.header = msg.header
+        compressed_image_msg.format = 'jpeg'
+        compressed_image_msg.data = np.array(buffer).tobytes()
+        self.publisher.publish(compressed_image_msg)
+
+    def overlay_top_view(self, background, overlay):
+        # 720p対応: 俯瞰画像を2倍に拡大
+        scale_factor = 2.0
+        overlay = cv2.resize(overlay, (0, 0), fx=scale_factor, fy=scale_factor, interpolation=cv2.INTER_AREA)
+
+        overlay_height, overlay_width = overlay.shape[:2]
+        bg_height, bg_width = background.shape[:2]
+
+        # 左下に配置する位置を計算
+        x1 = 10
+        y1 = bg_height - overlay_height - 10
+        x2 = x1 + overlay_width
+        y2 = y1 + overlay_height
+
+        # 合成
+        background[y1:y2, x1:x2] = overlay
+
+        return background
+
+    def top_view_image_callback(self, msg):
+        self.top_view_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+
+    def joy_callback(self, joy_msg):
+        # ボタン4の状態を更新
+        self.button4_pressed = joy_msg.buttons[4] == 1
+
+    def status_callback(self, msg):
+        self.game_status = msg.data
+
+    def countdown_callback(self, msg):
+        self.game_time = msg.data
+
+    def robot1_hp_callback(self, msg):
+        self.robot_hp[0] = msg.data
+        if self.max_robot_hp[0] < self.robot_hp[0]:
+            self.max_robot_hp[0] = self.robot_hp[0]
+
+    def robot2_hp_callback(self, msg):
+        self.robot_hp[1] = msg.data
+        if self.max_robot_hp[1] < self.robot_hp[1]:
+            self.max_robot_hp[1] = self.robot_hp[1]
+
+    def robot3_hp_callback(self, msg):
+        self.robot_hp[2] = msg.data
+        if self.max_robot_hp[2] < self.robot_hp[2]:
+            self.max_robot_hp[2] = self.robot_hp[2]
+
+    def robot4_hp_callback(self, msg):
+        self.robot_hp[3] = msg.data
+        if self.max_robot_hp[3] < self.robot_hp[3]:
+            self.max_robot_hp[3] = self.robot_hp[3]
+
+    def robot5_hp_callback(self, msg):
+        self.robot_hp[4] = msg.data
+        if self.max_robot_hp[4] < self.robot_hp[4]:
+            self.max_robot_hp[4] = self.robot_hp[4]
+
+    def robot6_hp_callback(self, msg):
+        self.robot_hp[5] = msg.data
+        if self.max_robot_hp[5] < self.robot_hp[5]:
+            self.max_robot_hp[5] = self.robot_hp[5]
+
+    def robot7_hp_callback(self, msg):
+        self.robot_hp[6] = msg.data
+        if self.max_robot_hp[6] < self.robot_hp[6]:
+            self.max_robot_hp[6] = self.robot_hp[6]
+
+    def robot8_hp_callback(self, msg):
+        self.robot_hp[7] = msg.data
+        if self.max_robot_hp[7] < self.robot_hp[7]:
+            self.max_robot_hp[7] = self.robot_hp[7]
+
+    def overlay_image(self, background, overlay):
+        overlay_height, overlay_width = overlay.shape[:2]
+        bg_height, bg_width = background.shape[:2]
+
+        # サイズを背景画像に合わせて変更
+        if overlay_height > bg_height or overlay_width > bg_width:
+            scale = min(bg_width / overlay_width, bg_height / overlay_height)
+            overlay = cv2.resize(overlay, (int(overlay_width * scale), int(overlay_height * scale)), interpolation=cv2.INTER_AREA)
+
+        # 透過PNGのチャンネル分離
+        b, g, r, a = cv2.split(overlay)
+        overlay_rgb = cv2.merge((b, g, r))
+
+        # マスク作成
+        alpha = a / 255.0
+        alpha_inv = 1.0 - alpha
+
+        # 合成位置の指定
+        y1, x1 = 0, 0
+        y2, x2 = y1 + overlay.shape[0], x1 + overlay.shape[1]
+
+        # 合成
+        for c in range(0, 3):
+            background[y1:y2, x1:x2, c] = (alpha * overlay_rgb[:, :, c] + alpha_inv * background[y1:y2, x1:x2, c])
+
+        return background
+
+    def _draw_result_on_pil(self, draw, width, height):
+        """試合結果テキストをPIL DrawオブジェクトにDirectに描画"""
+        if self.game_time < 0:
+            text = str(-self.game_time)
+            font = self._get_font(int(height // 8))
+            bbox = draw.textbbox((0, 0), text, font=font)
+            text_width, text_height = bbox[2] - bbox[0], bbox[3] - bbox[1]
+            text_x = (width - text_width) // 2
+            text_y = (height - text_height) // 2
+            draw.text((text_x, text_y), text, font=font, fill=(255, 255, 255))
+        elif self.game_status != STATUS_NORMAL:
+            if self.game_status == STATUS_RED_WIN:
+                text = "RED WIN"
+            elif self.game_status == STATUS_BLUE_WIN:
+                text = "BLUE WIN"
+            elif self.game_status >= STATUS_ROBOT1_WIN:
+                text = "ROBOT" + str(self.game_status - STATUS_ROBOT1_WIN + 1) + " WIN"
+            elif self.game_status == STATUS_DRAW:
+                text = "DRAW"
+            else:
+                return
+
+            font = self._get_font(int(height // 8))
+            bbox = draw.textbbox((0, 0), text, font=font)
+            text_width, text_height = bbox[2] - bbox[0], bbox[3] - bbox[1]
+            text_x = (width - text_width) // 2
+            text_y = (height - text_height) // 2
+            draw.text((text_x, text_y), text, font=font, fill=(255, 255, 255))
+
+    def _draw_countdown_on_pil(self, draw, width, height, ui_scale=1.0):
+        """カウントダウンをPIL Drawオブジェクトに直接描画"""
+        if self.game_time < 0:
+            draw_time = 0
+        else:
+            draw_time = self.game_time
+
+        text = str(int(draw_time // 60)).zfill(2) + " : " + str(int(draw_time % 60)).zfill(2)
+
+        font = self._get_font(int(height // 20 * ui_scale))
+        bbox = draw.textbbox((0, 0), text, font=font)
+        text_width, text_height = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        text_x = (width - text_width) // 2
+        text_y = (height - text_height) // 20
+
+        draw.text((text_x, text_y), text, font=font, fill=(255, 255, 255))
+
+    def _draw_robot_status_on_pil(self, draw, robot_name, robot_index, position_x, position_y, width, height, ui_scale=1.25):
+        """ロボットステータスをPIL Drawオブジェクトに直接描画"""
+        if self.max_robot_hp[robot_index - 1] == 0:
+            return
+
+        if self.robot_hp[robot_index - 1] == 0:
+            background_color = (32, 32, 32)
+        else:
+            background_color = (128, 128, 128)
+
+        # 四角形の描画位置とサイズを計算
+        rect_width = int(width / 6 * ui_scale)
+        rect_height = int(height / 10 * ui_scale)
+        top_left_corner = (position_x, position_y)
+        bottom_right_corner = (top_left_corner[0] + rect_width, top_left_corner[1] + rect_height)
+
+        draw.rectangle([top_left_corner, bottom_right_corner], fill=background_color)
+
+        font = self._get_font(int(rect_height * 0.2))
+        bbox = draw.textbbox((0, 0), robot_name, font=font)
+        text_width, text_height = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        text_x = top_left_corner[0] + (rect_width - text_width) // 2
+        text_y = top_left_corner[1] + int(rect_height * 0.2)
+        draw.text((text_x, text_y), robot_name, font=font, fill=(255, 255, 255))
+
+        # HPバー背景
+        top_left_corner = (position_x + int(rect_width * 0.1), position_y + int(rect_height * 0.6))
+        bottom_right_corner = (top_left_corner[0] + int(rect_width * 0.8), top_left_corner[1] + int(rect_height*0.2))
+        draw.rectangle([top_left_corner, bottom_right_corner], fill=(0,0,0))
+
+        # HPバー
+        top_left_corner = (position_x + int(rect_width * 0.1), position_y + int(rect_height * 0.6))
+        bottom_right_corner = (top_left_corner[0] + int(rect_width * 0.8 * self.robot_hp[robot_index - 1] / self.max_robot_hp[robot_index - 1]), top_left_corner[1] + int(rect_height*0.2))
+        draw.rectangle([top_left_corner, bottom_right_corner], fill=(0,255,128))
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = ImageOverlayPublisher()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()

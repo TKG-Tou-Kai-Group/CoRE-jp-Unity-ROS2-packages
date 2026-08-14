@@ -1,0 +1,70 @@
+<?xml version="1.0"?>
+<!--
+  Unity_ROS2_Robot_Simulator 用のセンサ定義です (Isaac 版の
+  isaac/sample_robot.isaac.xacro に対応)。
+
+  シミュレータは URDF の <simulation> 要素を読み、<sensor> の name 属性と
+  同じ名前のリンクにセンサを取り付けます。publish されるトピックは
+  /<エンティティ名>/<リンク名>/<センサ既定のサフィックス> です:
+
+    camera  -> /<robot>/<link>/image_raw   (sensor_msgs/Image)
+               /<robot>/<link>/camera_info (sensor_msgs/CameraInfo)
+    contact -> /<robot>/<link>/contact         (std_msgs/Bool)
+               /<robot>/<link>/contact/wrench  (geometry_msgs/WrenchStamped)
+
+  Isaac 版はリンクの親子関係がトピック名に入り
+  /<robot>/base_link/camera_link/image_raw でしたが、こちらはリンク名だけの
+  1 階層です。launch 側の remap もそれに合わせてあります。
+-->
+<robot xmlns:xacro="http://ros.org/wiki/xacro">
+
+  <xacro:macro name="sample_robot_simulation" params="prefix">
+
+    <!-- =============== Unity Simulator =============== -->
+    <simulation>
+      <!-- 操縦用の一人称カメラ (720p) -->
+      <sensor name="camera_link" type="camera">
+        <update_rate>10.0</update_rate>
+        <horizontal_fov>1.3962634</horizontal_fov>
+        <image>
+          <width>1280</width>
+          <height>720</height>
+        </image>
+        <clip>
+          <near>0.02</near>
+          <far>300</far>
+        </clip>
+      </sensor>
+
+      <!-- 俯瞰カメラ。base_link の 10 m 上から真下を向いている -->
+      <sensor name="top_view_camera_link" type="camera">
+        <update_rate>10.0</update_rate>
+        <horizontal_fov>0.523599</horizontal_fov>
+        <image>
+          <width>180</width>
+          <height>180</height>
+        </image>
+        <clip>
+          <near>5.0</near>
+          <far>15.0</far>
+        </clip>
+      </sensor>
+
+      <!-- 装甲板の被弾検出。hp_manager が std_msgs/Bool の立ち上がりを数える -->
+      <sensor name="armor1_link" type="contact">
+        <update_rate>30.0</update_rate>
+      </sensor>
+      <sensor name="armor2_link" type="contact">
+        <update_rate>30.0</update_rate>
+      </sensor>
+      <sensor name="armor3_link" type="contact">
+        <update_rate>30.0</update_rate>
+      </sensor>
+      <sensor name="armor4_link" type="contact">
+        <update_rate>30.0</update_rate>
+      </sensor>
+    </simulation>
+
+  </xacro:macro>
+
+</robot>

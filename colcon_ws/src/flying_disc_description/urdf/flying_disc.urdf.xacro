@@ -1,0 +1,53 @@
+<?xml version="1.0"?>
+<!--
+  競技用フライングディスク 1 枚。Isaac 版は 10/20/30 枚を積んだ USD を
+  add_usd で置いていましたが、Unity 版はこの URDF を 1 枚ずつエンティティとして
+  spawn します (core_sim_utils の spawn_flying_discs)。
+
+  ロボット (ros2_control 経由) と違い関節を持たないので、シミュレータ側では
+  単なる剛体として扱われます。
+-->
+<robot name="flying_disc" xmlns:xacro="http://ros.org/wiki/xacro">
+  <xacro:arg name="prefix" default="" />
+  <xacro:arg name="use_sim" default="false" />
+
+  <xacro:arg name="robot_name" default="flying_disc"/>
+
+  <xacro:include filename="$(find flying_disc_description)/urdf/common.xacro" />
+
+  <!-- シュータ内部やステージ床の上を滑らせたいので低摩擦。
+       combine="minimum" にしないと相手 (Unity 既定 0.6) と平均されてしまう。 -->
+  <collision_material name="flying_disc">
+    <friction static="0.2" dynamic="0.1" combine="minimum"/>
+  </collision_material>
+
+  <!--
+    Isaac 版は base_link (中身なし) + fixed joint + disc_link の 2 リンク構成でしたが、
+    Unity 版は 1 リンクにまとめています。慣性の書かれていないリンクは URDF Importer が
+    既定質量 (1 kg) を当ててしまい、ディスク 1 枚が 1.015 kg になってシュータが
+    潰れるためです。ルートリンク名は "world" 以外にしておくこと (world だと
+    シミュレータが immovable にして落ちてこなくなる)。
+  -->
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <cylinder length="0.02" radius="0.09"/>
+      </geometry>
+      <material name="white"/>
+    </visual>
+    <collision>
+      <collision_material name="flying_disc"/>
+      <geometry>
+        <cylinder length="0.02" radius="0.09"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.015"/>
+      <inertia ixx="0.000024" ixy="0" ixz="0"
+               iyy="0.000024" iyz="0"
+               izz="0.000030"/>
+    </inertial>
+  </link>
+
+</robot>

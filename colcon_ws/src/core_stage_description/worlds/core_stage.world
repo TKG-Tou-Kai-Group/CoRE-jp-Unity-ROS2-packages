@@ -1,0 +1,51 @@
+<?xml version="1.0" ?>
+<!--
+  CoRE ステージを Unity_ROS2_Robot_Simulator の `load_world` に読ませるための
+  SDF ワールドです。
+
+  シミュレータは SDF の「静的なサブセット」を景観オブジェクトへ変換します
+  (model / link / visual の pose を合成し、ROS Z-up から Unity 座標系へ変換)。
+  メッシュは `<uri>` の相対パスがこのファイルのディレクトリ基準で解決されるので、
+  インストール後の share/core_stage_description/ 配下でそのまま解決できます。
+
+  Collada は `<up_axis>` を尊重して読み込まれるため、2024_CoRE_stage.dae
+  (Z_UP, meter) は追加の回転なしで正しい向きになります。
+
+  <pose> の x/y はフィールド中心を原点へ持ってくるためのオフセットです。
+  メッシュ自身の footprint は x:[-0.04, 15.08] / y:[0.04, 24.08] なので、
+  中心の (7.519, 12.057) を引いています。z の -0.015 は Isaac 版の
+  core_stage.urdf.xacro と同じ、床の厚み分の沈め込みです。
+  ステージのモデルを差し替えたときはここを調整してください。
+-->
+<sdf version="1.7">
+  <world name="core_stage">
+
+    <light name="sun" type="directional">
+      <pose>0 0 20 0 0 0</pose>
+      <diffuse>1.0 1.0 1.0 1.0</diffuse>
+      <direction>-0.4 0.3 -0.9</direction>
+    </light>
+
+    <model name="core_stage">
+      <static>true</static>
+      <pose>-7.519 -12.057 -0.015 0 0 0</pose>
+      <link name="stage_link">
+        <visual name="stage_visual">
+          <geometry>
+            <mesh>
+              <uri>../meshes/Dae/2024_CoRE_stage.dae</uri>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="stage_collision">
+          <geometry>
+            <mesh>
+              <uri>../meshes/Dae/2024_CoRE_stage.dae</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+
+  </world>
+</sdf>
