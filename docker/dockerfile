@@ -46,17 +46,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 
 # core_jp_camera_viewer は Qt5 (Core/Gui/Widgets/OpenGL) と OpenGL/GLUT を、
-# core_jp_camera_publisher は OpenCV / Pillow と DejaVu フォント (HP 表示のオーバーレイが
-# /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf を直接開く) を必要とする。
-# 24.04 の pip は PEP 668 で system site-packages を触らないので、素の pip3 install が
-# 失敗したら --break-system-packages で入れ直す (22.04 の pip はこのフラグを知らない)。
+# core_jp_camera_publisher は OpenCV / Pillow / numpy と DejaVu フォント (HP 表示の
+# オーバーレイが /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf を直接開く) を
+# 必要とする。
+#
+# Python パッケージは pip ではなく apt で入れること。
+#   - 24.04 の pip は PEP 668 で system site-packages を拒否する。
+#     --break-system-packages で押し通しても、apt 版 numpy には RECORD が無いため
+#     pip がアンインストールに失敗してビルドが止まる。
+#   - そもそも numpy を 2.x へ上げると、ROS 2 の cv_bridge など numpy 1.x に対して
+#     ビルドされたパッケージが壊れる。ディストロが用意したバージョンに合わせる。
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3-pip python3-opencv \
+    python3-opencv python3-numpy python3-pil \
     qtbase5-dev qtbase5-dev-tools libqt5opengl5-dev libqt5svg5-dev \
     freeglut3-dev libglu1-mesa-dev libgl1-mesa-dev \
     fonts-dejavu-core \
-  && (pip3 install -U pillow numpy \
-      || pip3 install -U --break-system-packages pillow numpy) \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
 
