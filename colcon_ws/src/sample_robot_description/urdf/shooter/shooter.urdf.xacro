@@ -11,16 +11,31 @@
     roller_squeeze     片側あたりの食い込み量。射出輪の間隔はこれで決まる:
                          y = ±(disc_radius + roller_radius - roller_squeeze)
 
-    roller_squeeze は 0.001 にしてある。以前は射出輪の中心が y = ±0.12、
-    半径 0.04 で内面が ±0.08、ディスク直径 0.18 に対して片側 10 mm も
-    食い込んでいた。剛体どうしでこれだけ貫入すると解消時に過大な力積が出て、
-    同じ指令でも足元に落ちる弾と 350 m 飛ぶ弾が混ざる。接線力で送り出すには
-    法線力が要るので 0 にはせず、わずかに噛ませる。
+    以前は射出輪の中心が y = ±0.12、半径 0.04 で内面が ±0.08、ディスク直径 0.18
+    に対して片側 10 mm も食い込んでいた。剛体どうしでこれだけ貫入すると解消時に
+    過大な力積が出て、同じ指令でも足元に落ちる弾と 350 m 飛ぶ弾が混ざる。接線力で
+    送り出すには法線力が要るので 0 にはせず、わずかに噛ませる。
+
+    wall_clearance  通路の壁とディスクの片側あたりの隙間。
+
+    食い込みは隙間より大きく取ること。小さいと、遊びの範囲でディスクが片側へ
+    寄ったとき反対側の輪に届かず、片輪だけで蹴られる。実測では射出の半数が
+    そうなっていて、正常な 33〜35 m/s に対して 10〜18 m/s しか出ず、方位も
+    -12〜+14 度に散っていた (両輪で噛んだ弾は +0.3〜+1.2 度に収まる)。
+    以前は隙間 10 mm に対して食い込み 1 mm だった。
   -->
   <xacro:property name="disc_radius"   value="0.09"/>
   <xacro:property name="roller_radius" value="0.04"/>
   <xacro:property name="roller_width"  value="0.03"/>
-  <xacro:property name="roller_squeeze" value="0.001"/>
+  <xacro:property name="roller_squeeze" value="0.002"/>
+  <xacro:property name="wall_thickness" value="0.02"/>
+  <xacro:property name="wall_clearance" value="0.0015"/>
+  <xacro:property name="wall_y"
+                  value="${disc_radius + wall_clearance + wall_thickness / 2}"/>
+  <!-- 通路は射出輪の前縁 (x = 0.15 - 0.04 = 0.11) まで案内する。以前は x = 0.10 で
+       終わっていて、噛む直前の 1 cm が無案内だった。 -->
+  <xacro:property name="wall_length" value="0.22"/>
+  <xacro:property name="wall_center_x" value="0.01"/>
   <xacro:property name="roller_offset"
                   value="${disc_radius + roller_radius - roller_squeeze}"/>
   <!-- 実体に見合った慣性。以前は質量 10 kg・慣性 1.0 で、半径 0.04 の円盤として
@@ -93,7 +108,7 @@
         </link>
 
         <joint name="shooter_wall1_link_joint" type="fixed">
-          <origin rpy="0 0 0" xyz="0.0 0.11 0.05"/>
+          <origin rpy="0 0 0" xyz="${wall_center_x} ${wall_y} 0.05"/>
           <parent link="shooter_base_link"/>
           <child link="shooter_wall1_link"/>
         </joint>
@@ -101,14 +116,14 @@
         <link name="shooter_wall1_link">
           <visual>
                 <geometry>
-                  <box size="0.2 0.02 0.08" />
+                  <box size="${wall_length} ${wall_thickness} 0.08" />
                 </geometry>
                 <material name="shooter_unit"/>
           </visual>
           <collision>
             <collision_material name="shooter_unit"/>
                 <geometry>
-                  <box size="0.2 0.02 0.08" />
+                  <box size="${wall_length} ${wall_thickness} 0.08" />
                 </geometry>
           </collision>
           <inertial>
@@ -121,7 +136,7 @@
         </link>
 
         <joint name="shooter_wall2_link_joint" type="fixed">
-          <origin rpy="0 0 0" xyz="0.0 -0.11 0.05"/>
+          <origin rpy="0 0 0" xyz="${wall_center_x} ${-wall_y} 0.05"/>
           <parent link="shooter_base_link"/>
           <child link="shooter_wall2_link"/>
         </joint>
@@ -129,14 +144,14 @@
         <link name="shooter_wall2_link">
           <visual>
                 <geometry>
-                  <box size="0.2 0.02 0.08" />
+                  <box size="${wall_length} ${wall_thickness} 0.08" />
                 </geometry>
                 <material name="shooter_unit"/>
           </visual>
           <collision>
             <collision_material name="shooter_unit"/>
                 <geometry>
-                  <box size="0.2 0.02 0.08" />
+                  <box size="${wall_length} ${wall_thickness} 0.08" />
                 </geometry>
           </collision>
           <inertial>
