@@ -25,6 +25,16 @@
     <collision_material name="shooter_unit">
       <friction static="0.2" dynamic="0.0" combine="minimum"/>
     </collision_material>
+    <!--
+      射出輪だけは掴む側。ディスクの材質は dynamic 0.1 の minimum なので、
+      こちらを minimum のままにすると接線力がまったく出ず、フライホイール式の
+      射出が成立しない (ディスクは輪をすり抜けて足元に落ちる)。maximum は
+      minimum より優先されるので、ディスク側の指定に関わらずこの値が効く。
+      通路の壁は shooter_unit のままなので、引っ掛かりは増えない。
+    -->
+    <collision_material name="shooter_roller">
+      <friction static="1.0" dynamic="0.9" combine="maximum"/>
+    </collision_material>
   </xacro:macro>
   <material name="gray">
     <color rgba="0.6 0.6 0.6 1.0"/>

@@ -1,6 +1,38 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://ros.org/wiki/xacro">
 
+  <!--
+    射出輪の諸元。ここだけ触れば噛み具合を調整できる。
+
+    disc_radius        ディスクの半径 (flying_disc_description と揃えること)
+    roller_radius      射出輪の半径
+    roller_width       射出輪の厚み。ディスクの厚み 0.02 より広く取り、
+                       ディスクが上下にずれても外れないようにする
+    roller_squeeze     片側あたりの食い込み量。射出輪の間隔はこれで決まる:
+                         y = ±(disc_radius + roller_radius - roller_squeeze)
+
+    roller_squeeze は 0.001 にしてある。以前は射出輪の中心が y = ±0.12、
+    半径 0.04 で内面が ±0.08、ディスク直径 0.18 に対して片側 10 mm も
+    食い込んでいた。剛体どうしでこれだけ貫入すると解消時に過大な力積が出て、
+    同じ指令でも足元に落ちる弾と 350 m 飛ぶ弾が混ざる。接線力で送り出すには
+    法線力が要るので 0 にはせず、わずかに噛ませる。
+  -->
+  <xacro:property name="disc_radius"   value="0.09"/>
+  <xacro:property name="roller_radius" value="0.04"/>
+  <xacro:property name="roller_width"  value="0.03"/>
+  <xacro:property name="roller_squeeze" value="0.001"/>
+  <xacro:property name="roller_offset"
+                  value="${disc_radius + roller_radius - roller_squeeze}"/>
+  <!-- 実体に見合った慣性。以前は質量 10 kg・慣性 1.0 で、半径 0.04 の円盤として
+       ありえない値だった (izz = m r^2 / 2 なら 0.008)。慣性が過大なぶん食い込みの
+       反力を一切受け流さず、上の力積を増幅していた。800 rad/s での回転エネルギは
+       この値でも 1 発 (7.7 J) に対して十分余裕がある。 -->
+  <xacro:property name="roller_mass"   value="0.5"/>
+  <xacro:property name="roller_izz"
+                  value="${0.5 * roller_mass * roller_radius * roller_radius}"/>
+  <xacro:property name="roller_ixx"
+                  value="${roller_mass * (3 * roller_radius * roller_radius + roller_width * roller_width) / 12.0}"/>
+
   <xacro:macro name="shooter_v0" params="parent *joint_origin">
         <joint name="shooter_shaft_link_joint" type="fixed">
           <xacro:insert_block name="joint_origin"/>
@@ -440,7 +472,7 @@
 
 
          <joint name="shooter_wheel1_link_joint" type="continuous">
-          <origin rpy="0 0 0" xyz="0.15 0.12 0.055"/> <!-- disc pos x 0.18 z -0.0925 -->
+          <origin rpy="0 0 0" xyz="0.15 ${roller_offset} 0.055"/>
           <parent link="shooter_base_link"/>
           <child link="shooter_wheel1_link"/>
           <axis xyz="0 0 1"/>
@@ -452,27 +484,29 @@
         <link name="shooter_wheel1_link">
           <visual>
                 <geometry>
-                  <cylinder length="0.02" radius="0.04" />
+                  <cylinder length="${roller_width}" radius="${roller_radius}" />
                 </geometry>
                 <material name="gray"/>
           </visual>
           <collision>
-            <collision_material name="shooter_unit"/>
+            <!-- 射出輪だけは掴む側。shooter_unit (dynamic 0, combine minimum) の
+                 ままだと接線力が出ず、フライホイール式として成立しない。 -->
+            <collision_material name="shooter_roller"/>
                 <geometry>
-                  <cylinder length="0.02" radius="0.04" />
+                  <cylinder length="${roller_width}" radius="${roller_radius}" />
                 </geometry>
           </collision>
           <inertial>
                 <origin xyz="0 0 0"/>
-                <mass value="10.0"/>
-                <inertia ixx="1" ixy="0" ixz="0"
-                                 iyy="1" iyz="0"
-                                 izz="1" />
+                <mass value="${roller_mass}"/>
+                <inertia ixx="${roller_ixx}" ixy="0" ixz="0"
+                                 iyy="${roller_ixx}" iyz="0"
+                                 izz="${roller_izz}" />
           </inertial>
         </link>
 
          <joint name="shooter_wheel2_link_joint" type="continuous">
-          <origin rpy="0 0 0" xyz="0.15 -0.12 0.055"/> <!-- disc pos x 0.18 z -0.0925 -->
+          <origin rpy="0 0 0" xyz="0.15 ${-roller_offset} 0.055"/>
           <parent link="shooter_base_link"/>
           <child link="shooter_wheel2_link"/>
           <axis xyz="0 0 -1"/>
@@ -484,22 +518,22 @@
         <link name="shooter_wheel2_link">
           <visual>
                 <geometry>
-                  <cylinder length="0.02" radius="0.04" />
+                  <cylinder length="${roller_width}" radius="${roller_radius}" />
                 </geometry>
                 <material name="gray"/>
           </visual>
           <collision>
-            <collision_material name="shooter_unit"/>
+            <collision_material name="shooter_roller"/>
                 <geometry>
-                  <cylinder length="0.02" radius="0.04" />
+                  <cylinder length="${roller_width}" radius="${roller_radius}" />
                 </geometry>
           </collision>
           <inertial>
                 <origin xyz="0 0 0"/>
-                <mass value="10.0"/>
-                <inertia ixx="1" ixy="0" ixz="0"
-                                 iyy="1" iyz="0"
-                                 izz="1" />
+                <mass value="${roller_mass}"/>
+                <inertia ixx="${roller_ixx}" ixy="0" ixz="0"
+                                 iyy="${roller_ixx}" iyz="0"
+                                 izz="${roller_izz}" />
           </inertial>
         </link>
 
