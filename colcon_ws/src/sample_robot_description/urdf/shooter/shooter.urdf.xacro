@@ -37,6 +37,21 @@
   <xacro:property name="wall_length" value="0.22"/>
   <xacro:property name="wall_center_x" value="0.01"/>
   <!--
+    壁の高さは積み込み全体を覆う。以前は 0.08 (シュータ座標で z = 0.01〜0.09) しか
+    なく、囲えていたのは最下段の 1 枚だけだった。ディスクは base_link 基準で
+    z = 0.55 から 0.025 間隔に 20 枚積むので、上の 19 枚は横に支えが無い自立した
+    積み重ねになり、崩れて傾く。
+
+    傾いた弾は射出輪に噛まない。実測 160 発で、傾き 6 度以下は 118/121 (98%) が
+    射出されたのに対し、13 度以上は 4/39 (10%) しか出ていない。射出失敗の 24% は
+    ここが原因だった。
+
+    積み込みの上端はシュータ座標で z = 0.575 なので、余裕を見て 0.595 まで覆う。
+    枚数や間隔を変えるときはここも合わせること。
+  -->
+  <xacro:property name="wall_height" value="0.585"/>
+  <xacro:property name="wall_center_z" value="${0.01 + wall_height / 2}"/>
+  <!--
     間隔には roller_contact_offset (common.xacro で定義) の増分も足す。
     contact_offset は接触を生成し始める距離なので、大きくすると触れる前から
     投機的接触で速度が制限され、見かけ上ローラーが太ったように振る舞う。間隔を
@@ -116,7 +131,7 @@
         </link>
 
         <joint name="shooter_wall1_link_joint" type="fixed">
-          <origin rpy="0 0 0" xyz="${wall_center_x} ${wall_y} 0.05"/>
+          <origin rpy="0 0 0" xyz="${wall_center_x} ${wall_y} ${wall_center_z}"/>
           <parent link="shooter_base_link"/>
           <child link="shooter_wall1_link"/>
         </joint>
@@ -124,14 +139,14 @@
         <link name="shooter_wall1_link">
           <visual>
                 <geometry>
-                  <box size="${wall_length} ${wall_thickness} 0.08" />
+                  <box size="${wall_length} ${wall_thickness} ${wall_height}" />
                 </geometry>
                 <material name="shooter_unit"/>
           </visual>
           <collision>
             <collision_material name="shooter_unit"/>
                 <geometry>
-                  <box size="${wall_length} ${wall_thickness} 0.08" />
+                  <box size="${wall_length} ${wall_thickness} ${wall_height}" />
                 </geometry>
           </collision>
           <inertial>
@@ -144,7 +159,7 @@
         </link>
 
         <joint name="shooter_wall2_link_joint" type="fixed">
-          <origin rpy="0 0 0" xyz="${wall_center_x} ${-wall_y} 0.05"/>
+          <origin rpy="0 0 0" xyz="${wall_center_x} ${-wall_y} ${wall_center_z}"/>
           <parent link="shooter_base_link"/>
           <child link="shooter_wall2_link"/>
         </joint>
@@ -152,14 +167,14 @@
         <link name="shooter_wall2_link">
           <visual>
                 <geometry>
-                  <box size="${wall_length} ${wall_thickness} 0.08" />
+                  <box size="${wall_length} ${wall_thickness} ${wall_height}" />
                 </geometry>
                 <material name="shooter_unit"/>
           </visual>
           <collision>
             <collision_material name="shooter_unit"/>
                 <geometry>
-                  <box size="${wall_length} ${wall_thickness} 0.08" />
+                  <box size="${wall_length} ${wall_thickness} ${wall_height}" />
                 </geometry>
           </collision>
           <inertial>

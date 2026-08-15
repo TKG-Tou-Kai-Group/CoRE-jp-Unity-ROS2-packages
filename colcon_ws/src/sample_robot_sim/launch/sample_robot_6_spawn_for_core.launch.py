@@ -32,7 +32,7 @@ ROBOT_START_YAW = -1.57
 # シュータの装填口に積むディスク。Isaac 版の flying_disc_20set.usd 相当。
 FLYING_DISC_COUNT = 20
 FLYING_DISC_Z_OFFSET = 0.55   # base_link からの高さ
-FLYING_DISC_Z_SPACING = 0.025  # 厚み 0.02 + 隙間
+FLYING_DISC_Z_SPACING = 0.021  # 厚み 0.02 + 隙間 0.001。広いと各段が落下して跳ね、積み重ねが崩れる
 
 
 def wrap_yaml_text(input_path: str, robot_name: str, output_path: str) -> None:
