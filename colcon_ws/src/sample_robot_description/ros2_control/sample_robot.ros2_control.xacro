@@ -13,13 +13,19 @@
         <xacro:if value="${use_sim}">
           <plugin>topic_based_ros2_control/TopicBasedSystem</plugin>
           <!--
-            joint_states_topic は joint_state_broadcaster の publish 先とも同じ名前。
-            シミュレータと broadcaster の両方が同じトピックへ流し、TopicBasedSystem が
-            その両方を読む形になるが、値の出どころは同じなので実害はない (Isaac 版も
-            同じ構成)。名前空間付きで controller_manager を動かす都合でこうなっている。
+            シミュレータの joint_states は /joint_states とは別名にする。
+            joint_state_broadcaster も同じ名前で publish するため、名前を揃えると
+            1 つのトピックに publisher が 2 つ並ぶ。値の出どころは同じなので走行は
+            するが、購読側はどちらのメッセージを受け取ったか区別できない。実際、
+            シミュレータは全 39 関節、broadcaster は ros2_control の 7 関節だけを
+            流すので、ローラの状態を見ようとして 7 関節のメッセージを掴む、という
+            取り違えが起きる。
+
+            この param はシミュレータの publish 先と topic_based_ros2_control の
+            購読先の両方に効くので、片方だけずれることはない。
           -->
           <param name="joint_commands_topic">/${name}/joint_command</param>
-          <param name="joint_states_topic">/${name}/joint_states</param>
+          <param name="joint_states_topic">/${name}/sim_joint_states</param>
           <param name="sum_wrapped_joint_states">true</param>
           <!--
             Unity_ROS2_Robot_Simulator は ground_truth の publish 先も
