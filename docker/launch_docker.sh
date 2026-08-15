@@ -26,14 +26,33 @@ user=$(id -un)
 
 # nvidia-container-runtime があれば GPU を渡す。無くてもシミュレータは動くが、
 # レンダリング系センサ (camera) はソフトウェア描画になって遅い。
+GPU_OPT=()
 if type nvidia-container-runtime >/dev/null 2>&1; then
-  GPU_OPT="--gpus all"
+  GPU_OPT+=(--gpus all)
 fi
 
+# WSL2 (WSLg) では GPU は /dev/dxg と /usr/lib/wsl 経由で見える。
+# これを渡さないと Mesa が llvmpipe (ソフトウェア描画) に落ちて、
+# カメラセンサが目に見えて遅くなる。WSL 以外では素通り。
+WSL_OPT=()
+if [ -e /dev/dxg ]; then
+  WSL_OPT+=(--device=/dev/dxg)
+  [ -d /usr/lib/wsl ] && WSL_OPT+=(-v /usr/lib/wsl:/usr/lib/wsl -e LD_LIBRARY_PATH=/usr/lib/wsl/lib)
+  [ -d /mnt/wslg ]    && WSL_OPT+=(-v /mnt/wslg:/mnt/wslg -e XDG_RUNTIME_DIR=/mnt/wslg/runtime-dir)
+  # WSLg の GPU は /dev/dxg 経由で、コンテナには /dev/dri が現れない。
+  # Mesa は DRM デバイスを見つけられないと llvmpipe (ソフトウェア描画) を選ぶので、
+  # d3d12 ドライバを明示する。これが無いと GPU があっても使われない。
+  WSL_OPT+=(-e GALLIUM_DRIVER=d3d12)
+fi
+
+# シミュレータは -batchmode -nographics (ヘッドレス) では起動直後に
+# segfault するため、コンテナ内では必ず画面ありで動かすこと。
+# ヘッドレスが要るときはコンテナの外 (ホスト) で実行する。
 docker run -it --rm \
   --net=host \
   --ipc=host \
-  ${GPU_OPT} \
+  "${GPU_OPT[@]}" \
+  "${WSL_OPT[@]}" \
   --privileged \
   -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
   -v "$HOME/.Xauthority:/home/core/.Xauthority:rw" \

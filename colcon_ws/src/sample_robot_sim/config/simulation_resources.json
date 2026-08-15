@@ -1,0 +1,22 @@
+{
+  "_comment": [
+    "Unity_ROS2_Robot_Simulator の起動時設定。bring_up_core_stage.launch.py が",
+    "環境変数 SIMULATION_RESOURCES_CONFIG でシミュレータへ渡す。",
+    "",
+    "physics_hz: 物理演算レート [Hz]。シミュレータの既定は 50。",
+    "  オムニホイールは接地しているのが直径 3 cm 程度のフリーローラなので、",
+    "  50 Hz では 1 ステップあたりの接触点の移動が大きすぎて空転する。",
+    "  sample_robot_1 に 0.4 m/s を指令したときの実測値:",
+    "     50 Hz -> 0.127 m/s (32%)  RTF 0.56",
+    "    200 Hz -> 0.242 m/s (61%)  RTF 0.57",
+    "    500 Hz -> 0.266 m/s (67%)  RTF 0.40",
+    "  200 Hz は RTF をほとんど落とさずに追従が倍近くになるのでこれを既定にする。",
+    "  重いワールドで RTF が足りない場合は下げる。"
+  ],
+  "settings": {
+    "physics_hz": 200
+  },
+  "spawnable_paths": [],
+  "world_paths": [],
+  "named_poses": []
+}

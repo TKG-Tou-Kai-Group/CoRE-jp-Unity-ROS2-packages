@@ -7,6 +7,12 @@
       <origin rpy="${pi/2} 0 ${dir}" xyz="${0.0368*cos(dir)} ${0.0368*sin(dir)} 0.0158"/>
       <axis xyz="0 0 1"/>
       <isaac_drive_api stiffness="0" damping="0" joint_friction="0"/>
+      <!-- Unity: フリーローラなので駆動なし (Isaac の damping=0 と同じ意味)。
+           <limit velocity> は maxJointVelocity になる。既定 (100) より上げると
+           50 Hz の物理刻みでは 1 ステップの回転量が大きくなりすぎて接触が壊れる。
+           ローラは車体 0.6 m/s でも 40 rad/s 程度なので 100 で足りる。 -->
+      <drive stiffness="0.0" damping="0.0"/>
+      <limit effort="0.0" velocity="100.0"/>
     </joint>
     <link name="${prefix}_link">
       <visual>
@@ -35,6 +41,10 @@
     <xacro:insert_block name="joint_origin"/>
     <axis xyz="0 0 1"/>
     <isaac_drive_api stiffness="0" damping="30000" joint_friction="0"/>
+    <!-- Unity: 速度制御用のドライブ。<isaac_drive_api> は Isaac 専用で
+         こちらは読まれないため、同じ意味の <drive> を併記する。 -->
+    <drive stiffness="0.0" damping="30000.0"/>
+    <limit effort="100.0" velocity="100.0"/>
   </joint>
 
     <link name="${prefix}_housing_link">

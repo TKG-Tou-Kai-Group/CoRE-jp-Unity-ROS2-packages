@@ -406,7 +406,9 @@
         
          <joint name="shooter_loader_link_joint" type="prismatic">
           <origin rpy="0 0 0" xyz="-0.12 0 0.05"/>
-          <limit lower="0.0" upper="0.2" effort="100" velocity="1.0" />
+          <limit lower="0.0" upper="0.2" effort="100" velocity="10.0" />
+          <!-- Unity: 装填機構。ros2_control の指令上限は 6 なので velocity もそれ以上に取る -->
+          <drive stiffness="0.0" damping="30000.0"/>
           <parent link="shooter_base_link"/>
           <child link="shooter_loader_link"/>
           <axis xyz="1 0 0"/>
@@ -442,6 +444,9 @@
           <parent link="shooter_base_link"/>
           <child link="shooter_wheel1_link"/>
           <axis xyz="0 0 1"/>
+          <!-- Unity: 射出輪。ros2_control の指令上限 1600 rad/s に合わせる -->
+          <drive stiffness="0.0" damping="100.0"/>
+          <limit effort="100.0" velocity="2000.0"/>
         </joint>
 
         <link name="shooter_wheel1_link">
@@ -471,6 +476,9 @@
           <parent link="shooter_base_link"/>
           <child link="shooter_wheel2_link"/>
           <axis xyz="0 0 -1"/>
+          <!-- Unity: 射出輪。ros2_control の指令上限 1600 rad/s に合わせる -->
+          <drive stiffness="0.0" damping="100.0"/>
+          <limit effort="100.0" velocity="2000.0"/>
         </joint>
 
         <link name="shooter_wheel2_link">

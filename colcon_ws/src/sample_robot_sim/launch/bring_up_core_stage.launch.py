@@ -35,7 +35,7 @@ from launch_ros.substitutions import FindPackageShare
 
 DEFAULT_SIMULATOR_PATH = os.path.join(
     os.path.expanduser('~'),
-    'Unity_ROS2_Robot_Simulator_v1.0.2_Linux_amd64',
+    'Unity_ROS2_Robot_Simulator_v1.0.3_Linux_amd64',
     'Unity_ROS2_Robot_Simulator.x86_64')
 
 
@@ -58,9 +58,16 @@ def generate_launch_description():
         DeclareLaunchArgument('startup_delay', default_value='15.0'),
     ]
 
+    # シミュレータの起動時設定 (物理レートなど)。既定は 50 Hz だが、オムニホイールの
+    # フリーローラが 50 Hz では空転するので 200 Hz にしている (config/ の json 参照)。
+    sim_resources = os.path.join(
+        get_package_share_directory('sample_robot_sim'),
+        'config', 'simulation_resources.json')
+
     simulator = ExecuteProcess(
         cmd=[simulator_path],
         output='screen',
+        additional_env={'SIMULATION_RESOURCES_CONFIG': sim_resources},
         condition=IfCondition(launch_simulator),
     )
 
