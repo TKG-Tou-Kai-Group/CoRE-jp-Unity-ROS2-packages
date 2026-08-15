@@ -36,8 +36,16 @@
        終わっていて、噛む直前の 1 cm が無案内だった。 -->
   <xacro:property name="wall_length" value="0.22"/>
   <xacro:property name="wall_center_x" value="0.01"/>
+  <!--
+    間隔には roller_contact_offset (common.xacro で定義) の増分も足す。
+    contact_offset は接触を生成し始める距離なので、大きくすると触れる前から
+    投機的接触で速度が制限され、見かけ上ローラーが太ったように振る舞う。間隔を
+    そのままで広げると実効的な食い込みが増えるため、既定 0.01 からの増分だけ
+    間隔を広げて相殺する。
+  -->
   <xacro:property name="roller_offset"
-                  value="${disc_radius + roller_radius - roller_squeeze}"/>
+                  value="${disc_radius + roller_radius - roller_squeeze
+                          + (roller_contact_offset - 0.01)}"/>
   <!-- 実体に見合った慣性。以前は質量 10 kg・慣性 1.0 で、半径 0.04 の円盤として
        ありえない値だった (izz = m r^2 / 2 なら 0.008)。慣性が過大なぶん食い込みの
        反力を一切受け流さず、上の力積を増幅していた。800 rad/s での回転エネルギは
