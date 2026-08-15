@@ -52,3 +52,7 @@ qtcreator-*
 
 # Catkin custom files
 CATKIN_IGNORE
+
+# シミュレータ本体の展開先。bring_up の simulator_path に手元のビルドを
+# 差し替えるときここへ置く。100 MB 超のバイナリなので追跡しない。
+colcon_ws/simulator/
