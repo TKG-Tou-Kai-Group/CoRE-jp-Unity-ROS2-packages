@@ -31,16 +31,27 @@ Isaac 版と違い、Isaac Sim のイメージも NGC のアカウントも要�
 
 ## 使い方
 
-1. このリポジトリをクローンする
+1. このリポジトリをサブモジュールごとクローンする
    ```bash
-   git clone https://github.com/TKG-Tou-Kai-Group/CoRE-jp-Unity-ROS2-packages.git
+   git clone --recursive https://github.com/TKG-Tou-Kai-Group/CoRE-jp-Unity-ROS2-packages.git
+   cd CoRE-jp-Unity-ROS2-packages
    ```
 
-1. サブモジュールをセットアップする
+   `--recursive` を付け忘れた場合や、あとから取得する場合は次を実行してください。
    ```bash
-   cd CoRE-jp-Unity-ROS2-packages
    git submodule update --init --recursive
    ```
+
+   `colcon_ws/src` の以下 5 つはサブモジュールです。取得しないと `colcon build` が
+   メッセージ型やコントローラを見つけられずに失敗します。
+
+   | サブモジュール | 役割 |
+   | --- | --- |
+   | `simulation_interfaces` | シミュレータ操作の標準インタフェース (spawn / reset / state) |
+   | `simulation_ros2_utils` | 上記を叩く CLI と、シナリオ試験用のクライアント |
+   | `ROS-TCP-Endpoint` | シミュレータとの接続口 |
+   | `topic_based_ros2_control` | ros2_control をトピック経由でシミュレータへ繋ぐ |
+   | `omni_wheel_controller` | オムニホイールの車体速度→車輪速度の変換 |
 
 1. Docker イメージをビルドする
    ```bash
