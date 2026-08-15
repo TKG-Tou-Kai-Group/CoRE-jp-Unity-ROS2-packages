@@ -35,7 +35,7 @@ from launch_ros.substitutions import FindPackageShare
 
 DEFAULT_SIMULATOR_PATH = os.path.join(
     os.path.expanduser('~'),
-    'Unity_ROS2_Robot_Simulator_v1.0.3_Linux_amd64',
+    'Unity_ROS2_Robot_Simulator_v1.0.4_Linux_amd64',
     'Unity_ROS2_Robot_Simulator.x86_64')
 
 

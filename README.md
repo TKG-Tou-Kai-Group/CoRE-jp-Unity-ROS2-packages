@@ -27,7 +27,7 @@ ros2_control からのコマンドを `/<ロボット名>/joint_command` とし�
 
 Isaac 版と違い、Isaac Sim のイメージも NGC のアカウントも要りません。
 シミュレータは Docker イメージのビルド時に GitHub Releases から取得します
-（既定は **v1.0.3**）。
+（既定は **v1.0.4**）。
 
 ## 使い方
 
