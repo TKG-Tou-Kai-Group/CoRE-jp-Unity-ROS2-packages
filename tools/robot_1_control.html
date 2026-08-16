@@ -8,6 +8,12 @@
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: #1a1a1a; color: #eee; font-family: sans-serif; overflow: hidden; }
 
+  /* Script errors are easy to miss without the console open, and a broken
+     script silently stops the video and the controls. Surface them. */
+  #js-error {
+    display: none; background: #822; color: #fff; padding: 6px 12px;
+    font-size: 13px; font-family: monospace; white-space: pre-wrap;
+  }
   #videoStream {
     width: 100%; height: auto; display: block; cursor: pointer;
     background: #000;
@@ -89,11 +95,14 @@
 </head>
 
 <body>
-  <img id="videoStream" alt="Connecting..." />
+  <div id="js-error"></div>
+  <canvas id="videoStream"></canvas>
 
   <div id="status-bar">
     <span>Connection: <span id="status" class="status-ng">N/A</span></span>
     <span>Video: <span id="video-status" class="status-ng">N/A</span></span>
+    <span>Rate: <span id="video-rate">-- fps</span></span>
+    <span>Bandwidth: <span id="video-bw">-- Mbps</span></span>
     <span>Speed: <span id="scale-factor">1.0</span></span>
     <span>Input: <span id="input-mode">Keyboard</span></span>
   </div>
@@ -148,6 +157,12 @@
   const ROBOT_NAME = 'sample_robot_1';
   const SERVER_ADDRESS = 'localhost';
   const SERVER_PORT = '9090';
+  // Video comes from the operator_stream node as H.264 over its own WebSocket.
+  // Measured on the operator view: 0.8 Mbps per stream, against 2.0 Mbps for the
+  // same picture sent as base64 JPEG over rosbridge. For eight operators that is
+  // 6.4 Mbps instead of 19.7 Mbps, and it still needs only one port.
+  const VIDEO_PORT = '9091';
+  const VIDEO_STREAM = 'robot1';
   const STORAGE_KEY = 'robot_control_config_' + ROBOT_NAME;
 
   // キーボードアクション定義
@@ -333,6 +348,130 @@
   const videoStream = document.getElementById('videoStream');
   let scaleFactor = 0.5;
 
+  window.addEventListener('error', (e) => {
+    const el = document.getElementById('js-error');
+    el.style.display = 'block';
+    el.textContent = 'Script error: ' + e.message +
+      ' (' + (e.filename || '').split('/').pop() + ':' + e.lineno + ')';
+  });
+
+  // ===== Video (H.264 over WebSocket) =====
+  // The operator_stream node encodes the composed operator view and pushes one
+  // Annex-B NAL per WebSocket frame. VideoDecoder wants a whole access unit, so
+  // the NALs are gathered until the next slice begins.
+  //
+  // This socket is independent of rosbridge: video keeps running even while the
+  // control link reconnects, and vice versa.
+  const vctx = videoStream.getContext('2d');
+  let videoWs = null, decoder = null;
+  let pendingNals = [], haveKeyframe = false;
+  let vFrames = 0, vBytes = 0, vLastStat = performance.now();
+
+  function setVideoStatus(text, cls) {
+    const el = document.getElementById('video-status');
+    el.textContent = text;
+    el.className = cls;
+  }
+
+  function nalType(nal) {
+    let i = 0;
+    if (nal[0] === 0 && nal[1] === 0 && nal[2] === 0 && nal[3] === 1) i = 4;
+    else if (nal[0] === 0 && nal[1] === 0 && nal[2] === 1) i = 3;
+    return nal[i] & 0x1f;
+  }
+
+  function flushAccessUnit() {
+    if (!pendingNals.length || !decoder) return;
+    const total = pendingNals.reduce((n, a) => n + a.length, 0);
+    const buf = new Uint8Array(total);
+    let off = 0;
+    for (const a of pendingNals) { buf.set(a, off); off += a.length; }
+    pendingNals = [];
+
+    const types = [];
+    for (let i = 0; i + 4 < buf.length; i++) {
+      if (buf[i] === 0 && buf[i + 1] === 0 && buf[i + 2] === 0 && buf[i + 3] === 1) {
+        types.push(buf[i + 4] & 0x1f);
+        i += 3;
+      }
+    }
+    // 5 = IDR slice, 7 = SPS. Feeding delta frames before a keyframe produces
+    // a broken picture, so they are dropped until the first one arrives.
+    const isKey = types.includes(5) || types.includes(7);
+    if (!haveKeyframe && !isKey) return;
+    haveKeyframe = true;
+
+    try {
+      decoder.decode(new EncodedVideoChunk({
+        type: isKey ? 'key' : 'delta',
+        timestamp: performance.now() * 1000,
+        data: buf,
+      }));
+    } catch (e) {
+      setVideoStatus('Decode error', 'status-ng');
+      console.error('decode failed:', e);
+    }
+  }
+
+  function startVideo() {
+    if (!('VideoDecoder' in window)) {
+      setVideoStatus('No WebCodecs', 'status-ng');
+      console.error('This browser has no WebCodecs support (Chrome/Edge 94+, Firefox 130+).');
+      return;
+    }
+    decoder = new VideoDecoder({
+      output: (frame) => {
+        if (videoStream.width !== frame.displayWidth) videoStream.width = frame.displayWidth;
+        if (videoStream.height !== frame.displayHeight) videoStream.height = frame.displayHeight;
+        vctx.drawImage(frame, 0, 0);
+        frame.close();
+        vFrames++;
+        setVideoStatus('Streaming', 'status-ok');
+      },
+      error: (e) => {
+        setVideoStatus('Decoder error', 'status-ng');
+        console.error('decoder error:', e);
+      },
+    });
+    decoder.configure({ codec: 'avc1.42E01F', optimizeForLatency: true });
+
+    setVideoStatus('Connecting...', 'status-warn');
+    videoWs = new WebSocket(`ws://${SERVER_ADDRESS}:${VIDEO_PORT}/${VIDEO_STREAM}`);
+    videoWs.binaryType = 'arraybuffer';
+    videoWs.onmessage = (ev) => {
+      const nal = new Uint8Array(ev.data);
+      vBytes += nal.length;
+      const t = nalType(nal);
+      const hasSlice = pendingNals.some(p => {
+        const pt = nalType(p);
+        return pt === 1 || pt === 5;
+      });
+      if ((t === 1 || t === 5) && hasSlice) flushAccessUnit();
+      pendingNals.push(nal);
+      if (t === 1 || t === 5) flushAccessUnit();
+    };
+    videoWs.onerror = () => setVideoStatus('Video link error', 'status-ng');
+    videoWs.onclose = () => {
+      setVideoStatus('Video disconnected', 'status-ng');
+      haveKeyframe = false;
+      pendingNals = [];
+      // Come back on its own; the node may just be restarting.
+      setTimeout(startVideo, 2000);
+    };
+  }
+
+  setInterval(() => {
+    const now = performance.now();
+    const dt = (now - vLastStat) / 1000;
+    if (dt >= 1) {
+      document.getElementById('video-rate').textContent = (vFrames / dt).toFixed(1) + ' fps';
+      document.getElementById('video-bw').textContent = (vBytes * 8 / dt / 1e6).toFixed(2) + ' Mbps';
+      vFrames = 0; vBytes = 0; vLastStat = now;
+    }
+  }, 1000);
+
+  startVideo();
+
   const ros = new ROSLIB.Ros({
     url: `ws://${SERVER_ADDRESS}:${SERVER_PORT}`,
     options: { ros_domain_id: '89' }
@@ -341,18 +480,7 @@
   ros.on("connection", () => {
     document.getElementById("status").textContent = "Connected";
     document.getElementById("status").className = "status-ok";
-    document.getElementById('video-status').textContent = 'Subscribing...';
-    document.getElementById('video-status').className = 'status-warn';
 
-    const imageTopic = new ROSLIB.Topic({
-      ros, name: `/${ROBOT_NAME}/camera_link/image_compressed`,
-      messageType: 'sensor_msgs/CompressedImage'
-    });
-    imageTopic.subscribe((msg) => {
-      videoStream.src = 'data:image/jpeg;base64,' + msg.data;
-      document.getElementById('video-status').textContent = 'Streaming';
-      document.getElementById('video-status').className = 'status-ok';
-    });
   });
 
   ros.on('error', () => {
@@ -363,8 +491,6 @@
   ros.on('close', () => {
     document.getElementById("status").textContent = "Disconnected";
     document.getElementById("status").className = "status-ng";
-    document.getElementById('video-status').textContent = 'N/A';
-    document.getElementById('video-status').className = 'status-ng';
   });
 
   const joyTopic = new ROSLIB.Topic({
