@@ -58,6 +58,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 #     ビルドされたパッケージが壊れる。ディストロが用意したバージョンに合わせる。
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-opencv python3-numpy python3-pil \
+    ffmpeg \
     qtbase5-dev qtbase5-dev-tools libqt5opengl5-dev libqt5svg5-dev \
     freeglut3-dev libglu1-mesa-dev libgl1-mesa-dev \
     fonts-dejavu-core \

@@ -10,6 +10,10 @@
   <exec_depend>rclpy</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>simulation_interfaces</exec_depend>
+  <!-- operator_stream: 操縦画面の H.264 配信 -->
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>ffmpeg</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
