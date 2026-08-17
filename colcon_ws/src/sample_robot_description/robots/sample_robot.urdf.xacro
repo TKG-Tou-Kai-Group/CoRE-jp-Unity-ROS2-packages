@@ -29,8 +29,9 @@
     接地と車輪の見た目は base_v0 の skids="true" が受け持つ。
   -->
 
+  <!-- 取り付け高さと仰角は shooter.urdf.xacro で射出口の目標高さから逆算する -->
   <xacro:shooter_v0 parent="base_link">
-	<origin xyz="0 0 0.45"/>
+	<origin xyz="0 0 ${shooter_mount_z}" rpy="0 ${-shooter_elevation} 0"/>
   </xacro:shooter_v0>
 
   <!-- Base -->

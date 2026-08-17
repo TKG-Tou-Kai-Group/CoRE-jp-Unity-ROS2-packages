@@ -76,6 +76,30 @@
     初速がばらついていた (中央 25.8 m/s、理論 32 m/s)。通路の後端から
     射出輪の先まで覆う長さに変える。
   -->
+  <!--
+    射出口の高さと仰角。装甲板の帯 (base_link の 0.375〜0.525) に弾道が
+    できるだけ長く留まるように決めた値。
+
+    装甲板の高さの半分 (0.075 m、中心 0.45 の上下 0.0375) に収まる条件で
+    初速 20 m/s の放物線を最適化すると、射出口 0.415 m・仰角 3.4 度で
+    帯に 4.87 m 留まる (仰角 0・射出口 0.505 の従来は 3.26 m)。
+
+    仰角を浅く取ってあるのは、射出のばらつきに対する余裕を残すため。
+    実測の仰角の幅は 6 度前後あり、±2 度ずれると装甲板全体で 1.43 m しか
+    保証できない。帯の端をなぞる深い仰角にすると、ばらつきでさらに短くなる。
+
+    取り付け高さは射出口の目標高さから逆算する。仰角を付けると射出輪の
+    位置が回るので、その分を差し引かないと狙った高さにならない。
+  -->
+  <xacro:property name="shooter_elevation" value="${radians(3.4)}"/>
+  <xacro:property name="shooter_muzzle_z" value="0.415"/>
+  <xacro:property name="roller_mount_x" value="0.15"/>
+  <xacro:property name="roller_mount_z" value="0.055"/>
+  <xacro:property name="shooter_mount_z"
+                  value="${shooter_muzzle_z
+                          - (roller_mount_x * sin(shooter_elevation)
+                             + roller_mount_z * cos(shooter_elevation))}"/>
+
   <xacro:property name="barrel_clearance" value="0.005"/>
   <xacro:property name="barrel_thickness" value="0.04"/>
   <xacro:property name="barrel_back_x"  value="-0.12"/>
@@ -533,7 +557,7 @@
 
 
          <joint name="shooter_wheel1_link_joint" type="continuous">
-          <origin rpy="0 0 0" xyz="0.15 ${roller_offset} 0.055"/>
+          <origin rpy="0 0 0" xyz="${roller_mount_x} ${roller_offset} ${roller_mount_z}"/>
           <parent link="shooter_base_link"/>
           <child link="shooter_wheel1_link"/>
           <axis xyz="0 0 1"/>
@@ -567,7 +591,7 @@
         </link>
 
          <joint name="shooter_wheel2_link_joint" type="continuous">
-          <origin rpy="0 0 0" xyz="0.15 ${-roller_offset} 0.055"/>
+          <origin rpy="0 0 0" xyz="${roller_mount_x} ${-roller_offset} ${roller_mount_z}"/>
           <parent link="shooter_base_link"/>
           <child link="shooter_wheel2_link"/>
           <axis xyz="0 0 -1"/>
