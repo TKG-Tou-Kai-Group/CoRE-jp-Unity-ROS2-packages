@@ -1,4 +1,4 @@
-"""操縦画面を H.264 にして WebSocket で配信する試作。
+"""操縦画面を H.264 にして WebSocket で配信する。
 
 現状はブラウザが rosbridge (ポート 9090) で JPEG を base64 の JSON として受け取る。
 実測 26 KiB/枚 x 10 fps x 1.33 (base64) = 1 系統 2.8 Mbps、8 系統で 23 Mbps。
@@ -7,7 +7,10 @@ H.264 なら同じ画をおよそ 1/3 の帯域で送れる。WebRTC でも同�
 シグナリングと NAT 越えが要り、ポート 9090 だけを共有する現行の運用が崩れる。
 WebSocket なら 1 ポートのまま送れて、ブラウザ側は WebCodecs で復号できる。
 
-構成:
+機体ごとに 1 系統。ブラウザは ws://<host>:9091/robot<N> を開く。
+tools/robot_<N>_control.html がこの経路で映像を受け取る。
+
+構成 (機体ごと):
     ROS の image_compressed (JPEG)
       -> cv2 で復号
       -> ffmpeg (libx264, zerolatency) へ生フレームを流し込む
@@ -165,38 +168,63 @@ class WSServer:
         with self.lock:
             return len(self.clients)
 
+    def has_client(self, stream):
+        """その系統を見ている視聴者が居るか。エンコードの要否判定に使う。"""
+        with self.lock:
+            return any(s == stream or s == 'default'
+                       for s in self.clients.values())
+
 
 class Streamer(Node):
-    def __init__(self, topic, streams, port, fps, bitrate, raw=False):
+    """機体ごとに 1 系統を配信する。
+
+    以前は 1 つのトピックを N 系統へ複製するだけの試作で、帯域の比較にしか
+    使えなかった。実運用では機体ごとに別の映像が要るので、機体名から
+    トピックとストリーム名を組み立てて購読する。
+
+    エンコーダは最初のフレームが来た時点で作る。ロボットは後から生成される
+    ので、起動時にはトピックもフレームの大きさも決まっていない。
+    """
+
+    def __init__(self, robots, port, fps, bitrate, raw=False,
+                 topic_template=None):
         super().__init__('operator_stream')
         self.ws = WSServer(port)
         self.encoders = {}
-        self.streams = streams
         self.fps = fps
         self.bitrate = bitrate
+        self.raw = raw
         self.jpeg_bytes = 0
         self.jpeg_frames = 0
         self.decode_s = 0.0
-        self.raw = raw
-        if raw:
-            # core_jp_camera_publisher を output_format:=raw|both で動かすと出る。
-            # JPEG を復号し直さずに済むので、系統数ぶんの復号コストが丸ごと消える。
-            self.create_subscription(Image, topic, self.on_raw, 5)
-        else:
-            self.create_subscription(CompressedImage, topic, self.on_image, 5)
-        self.get_logger().info(
-            f"'{topic}' ({'生画像' if raw else 'JPEG'}) を {len(streams)} 系統へ "
-            f"H.264 配信 (ws://0.0.0.0:{port}/<name>)")
 
-    def on_raw(self, msg):
+        suffix = 'image_raw' if raw else 'image_compressed'
+        template = topic_template or ('/{robot}/camera_link/' + suffix)
+        self.streams = {}
+        for i, robot in enumerate(robots):
+            topic = template.format(robot=robot)
+            name = f'robot{i + 1}'
+            self.streams[robot] = name
+            if raw:
+                self.create_subscription(
+                    Image, topic, lambda m, n=name: self.on_raw(n, m), 5)
+            else:
+                self.create_subscription(
+                    CompressedImage, topic,
+                    lambda m, n=name: self.on_image(n, m), 5)
+        self.get_logger().info(
+            f"{len(robots)} 台を H.264 配信 ({'生画像' if raw else 'JPEG'} を入力、"
+            f"ws://0.0.0.0:{port}/robot1..robot{len(robots)})")
+
+    def on_raw(self, name, msg):
         self.jpeg_bytes += len(msg.data)
         self.jpeg_frames += 1
         frame = np.frombuffer(msg.data, np.uint8).reshape(msg.height, msg.width, -1)
         if msg.encoding == 'rgb8':
             frame = frame[:, :, ::-1]
-        self._feed(frame, msg.width, msg.height)
+        self._feed(name, frame, msg.width, msg.height)
 
-    def on_image(self, msg):
+    def on_image(self, name, msg):
         self.jpeg_bytes += len(msg.data)
         self.jpeg_frames += 1
         t0 = time.time()
@@ -205,55 +233,76 @@ class Streamer(Node):
         if frame is None:
             return
         h, w = frame.shape[:2]
-        self._feed(frame, w, h)
+        self._feed(name, frame, w, h)
 
-    def _feed(self, frame, w, h):
-        for name in self.streams:
-            enc = self.encoders.get(name)
-            if enc is None:
-                enc = Encoder(name, w, h, self.fps, self.bitrate, self.ws.send)
-                self.encoders[name] = enc
-            enc.feed(frame)
+    def _feed(self, name, frame, w, h):
+        enc = self.encoders.get(name)
+        if enc is None:
+            # 視聴者が居ない系統はエンコードしない。8 台ぶんの libx264 を
+            # 常時回すと CPU を無駄に食う (カメラ配信だけで既に 8 台で 547%)。
+            if not self.ws.has_client(name):
+                return
+            enc = Encoder(name, w, h, self.fps, self.bitrate, self.ws.send)
+            self.encoders[name] = enc
+        enc.feed(frame)
 
 
-def main():
+def main(args=None):
+    """常駐ノードとして動かす。
+
+    以前は --secs で打ち切って帯域の比較値を出すベンチマークだった。
+    実運用では止まっては困るので、既定では回り続ける。比較値が要るときは
+    --secs を与えると、その時間だけ動いて集計を出す。
+    """
     ap = argparse.ArgumentParser()
-    ap.add_argument('--topic', default='/sample_robot_1/camera_link/image_compressed')
-    ap.add_argument('--streams', type=int, default=8)
+    ap.add_argument('--robots', nargs='+',
+                    default=[f'sample_robot_{i}' for i in range(1, 9)],
+                    help='配信する機体。並び順が robot1..robotN に対応する')
+    ap.add_argument('--topic-template', default=None,
+                    help='購読するトピック。{robot} が機体名に置き換わる')
     ap.add_argument('--port', type=int, default=9091)
     ap.add_argument('--fps', type=int, default=10)
     ap.add_argument('--bitrate', default='800k')
-    ap.add_argument('--secs', type=float, default=40.0)
+    ap.add_argument('--secs', type=float, default=0.0,
+                    help='0 なら常駐。>0 ならその秒数だけ動いて帯域の集計を出す')
     ap.add_argument('--raw', action='store_true',
                     help='生画像 (sensor_msgs/Image) を購読する。JPEG 復号を省ける')
-    a = ap.parse_args()
+    # ros2 run から渡される --ros-args は argparse が知らないので落とす
+    a, _ = ap.parse_known_args()
 
-    rclpy.init()
-    names = [f'robot{i + 1}' for i in range(a.streams)]
-    n = Streamer(a.topic, names, a.port, a.fps, a.bitrate, a.raw)
+    rclpy.init(args=args)
+    node = Streamer(a.robots, a.port, a.fps, a.bitrate, a.raw, a.topic_template)
+
+    if a.secs <= 0:
+        try:
+            rclpy.spin(node)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            node.destroy_node()
+            rclpy.shutdown()
+        return
+
     t0 = time.time()
     while time.time() - t0 < a.secs:
-        rclpy.spin_once(n, timeout_sec=0.05)
+        rclpy.spin_once(node, timeout_sec=0.05)
     dt = time.time() - t0
 
-    enc_bytes = sum(e.bytes_out for e in n.encoders.values())
-    enc_pkts = sum(e.packets for e in n.encoders.values())
-    jpeg_mbps = n.jpeg_bytes / dt * 8 / 1e6
+    enc_bytes = sum(e.bytes_out for e in node.encoders.values())
+    enc_pkts = sum(e.packets for e in node.encoders.values())
+    jpeg_mbps = node.jpeg_bytes / dt * 8 / 1e6
     h264_mbps = enc_bytes / dt * 8 / 1e6
-    print('=== 入力 (現状の操縦画面) ===')
-    print('  JPEG %d 枚 / %.1f 秒 = %.1f fps / 1 枚 %.1f KiB / %.2f Mbps (1 系統)'
-          % (n.jpeg_frames, dt, n.jpeg_frames / dt,
-             n.jpeg_bytes / max(n.jpeg_frames, 1) / 1024, jpeg_mbps))
-    print('  JPEG 復号: 合計 %.1f 秒 (1 枚 %.1f ms)'
-          % (n.decode_s, 1000 * n.decode_s / max(n.jpeg_frames, 1)))
+    print('=== 入力 ===')
+    print('  %d 枚 / %.1f 秒 = %.1f fps / 1 枚 %.1f KiB / %.2f Mbps'
+          % (node.jpeg_frames, dt, node.jpeg_frames / dt,
+             node.jpeg_bytes / max(node.jpeg_frames, 1) / 1024, jpeg_mbps))
+    if not node.raw:
+        print('  JPEG 復号: 合計 %.1f 秒 (1 枚 %.1f ms)'
+              % (node.decode_s, node.decode_s / max(node.jpeg_frames, 1) * 1000))
     print('=== 出力 (H.264) ===')
-    print('  %d 系統 / NAL %d 個 / %.2f Mbps (合計) / %.2f Mbps (1 系統)'
-          % (len(n.encoders), enc_pkts, h264_mbps, h264_mbps / max(len(n.encoders), 1)))
-    print('=== 現状方式との比較 (8 系統に換算) ===')
-    print('  rosbridge JSON+base64: %.1f Mbps' % (jpeg_mbps * 1.33 * 8))
-    print('  H.264 + WebSocket    : %.1f Mbps' % (h264_mbps / max(len(n.encoders), 1) * 8))
-    print('  WS 接続数: %d' % n.ws.client_count())
-    print('STREAMDONE')
+    print('  %d NAL / %.2f Mbps (%d 系統)'
+          % (enc_pkts, h264_mbps, len(node.encoders)))
+    node.destroy_node()
     rclpy.shutdown()
 
 

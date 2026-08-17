@@ -18,9 +18,9 @@ ros2_control からのコマンドを `/<ロボット名>/joint_command` とし�
 このリポジトリでできること
 - CoRE ステージの読み込み（SDF ワールド）
 - ロボットの生成（最大 8 台）
-- フライングディスクの装填（1 台につき 20 枚）
+- フライングディスクの都度生成（装填口に常に 1 枚、場に最大 24 枚）
 - ブラウザ経由でのロボット操縦（キーボード・ゲームパッド対応、キーコンフィグ機能付き）
-- 720p（1280x720）カメラ映像のリアルタイム配信（JPEG 圧縮、rosbridge 経由）
+- 720p（1280x720）カメラ映像のリアルタイム配信（H.264、WebSocket 経由）
 - 試合管理機能（カウントダウン、HP 表示、個人戦/チーム戦対応）
 
 ## 必要なもの
@@ -107,7 +107,8 @@ Isaac 版と違い、Isaac Sim のイメージも NGC のアカウントも要�
      ```
      `sample_robot_1_spawn_for_core.launch.py` の数字部分を変更すると別のロボットを
      生成できます。番号は 1 から 8 まで用意しています。
-     ロボットの生成が終わると、続けてフライングディスク 20 枚がシュータへ積まれます。
+     フライングディスクは起動時には積まれません。`flying_disc_feeder` が装填口へ
+     常に 1 枚だけ置き、撃つたびに次の 1 枚を作ります。
 
    - シミュレーションの開始／停止
 
@@ -122,14 +123,23 @@ Isaac 版と違い、Isaac Sim のイメージも NGC のアカウントも要�
 
      `tools/robot_1_control.html` をブラウザで開いてください。
      `robot_1` から `robot_8` まであり、各ロボットに対応しています。
-     映像・操作ともに rosbridge（ポート 9090）のみで通信します。
+
+     操作は rosbridge（ポート **9090**）、映像は `operator_stream` の
+     WebSocket（ポート **9091**）で受け取ります。映像は H.264 で、
+     1 系統あたり約 0.7 Mbps です（rosbridge 経由の JPEG は 2.8 Mbps）。
+     8 台ぶん同時に見ても 5.8 Mbps に収まります。
+
+     `operator_stream` は `bring_up_core_stage.launch.py` が起動します。
+     視聴者が居ない系統は符号化しないので、誰も見ていない機体のぶんは
+     CPU を使いません。
 
      補足1：html 内の `SERVER_ADDRESS` を所望の IP アドレスに変更することで、
-     同一 LAN の別の PC から操作することができます。
+     同一 LAN の別の PC から操作することができます。映像用の 9091 も
+     併せて共有してください。
 
-     補足2：この html では、CompressedImage（JPEG 圧縮済み映像）をサブスクライブし、
-     Joy メッセージをパブリッシュしています。適宜トピック名を変更することで
-     別の操作画面やロボットの操作に活用できます。
+     補足2：この html は映像を `operator_stream` の WebSocket から H.264 で受け取り、
+     操作は rosbridge へ Joy メッセージとして送っています。`ROBOT_NAME` と
+     `VIDEO_STREAM` を変えれば別のロボットに向けられます。
 
    - 操作方法
 
@@ -216,7 +226,7 @@ Isaac 版と違い、Isaac Sim のイメージも NGC のアカウントも要�
 | シミュレータ起動・ステージ読み込み | `isaac_ros2_scripts/launcher_with_reset`（USD） | シミュレータは別プロセス。`core_sim_utils/load_world` が SDF ワールドを読ませる |
 | ROS 2 との接続 | Isaac Sim 内蔵 | ROS-TCP-Endpoint（`ros_tcp_endpoint`） |
 | ロボットの生成 | `isaac_ros2_scripts/spawn_robot` | `simulation_ros2_utils/spawn_entity`（`spawn_entity` サービス） |
-| ディスクの配置 | `isaac_ros2_scripts/add_usd`（20 枚入り USD） | `core_sim_utils/spawn_flying_discs`（1 枚の URDF を 20 個 spawn） |
+| ディスクの配置 | `isaac_ros2_scripts/add_usd`（20 枚入り USD） | `core_sim_utils/flying_disc_feeder`（撃つたびに 1 枚生成、場に最大 24 枚） |
 | センサ定義 | `sample_robot_description/isaac/*.isaac.xacro`（`<isaac>`） | `sample_robot_description/simulation/*.simulation.xacro`（`<simulation>`） |
 | 接触摩擦 | `<material>` 内の `<isaac_rigid_body>` | `<robot>` 直下の `<collision_material>` を `<collision>` から名前で参照 |
 | 試合リセット | 共有メモリ `isaac_sim_reset` | `reset_simulation` サービス（`SCOPE_STATE`） |
@@ -279,8 +289,8 @@ RViz 用の `urdf/core_stage.urdf.xacro` も同時に生成されるので、
 こちらのツールを利用することで、外部ネットワークの参加者と気軽にシミュレーションすることが可能です。
 以下に、Secure Share Net を使用する手順を示します。
 
-映像は JPEG 圧縮（品質 50）で配信しており、720p 10FPS 2 台同時接続で約 1.6MB/s（約 13Mbps）の
-帯域を使用します。
+必要なポートは操作用の **9090** と映像用の **9091** の 2 つです。
+映像は H.264 で 1 系統あたり約 0.7 Mbps、8 台ぶんで約 5.8 Mbps です。
 
 1. 現在シミュレータを起動している同じ PC で Secure Share Net を起動します。
 1. Secure Share Net の管理画面から、「ローカルポート番号 (例: 25565)」の入力欄に「9090」を

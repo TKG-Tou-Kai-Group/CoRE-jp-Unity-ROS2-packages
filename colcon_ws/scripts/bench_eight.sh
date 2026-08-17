@@ -12,9 +12,17 @@ SIM_DIR=/home/core/sim_dev; WS=/home/core/colcon_ws; LOG=/tmp/eight
 source /opt/ros/jazzy/setup.bash; source $WS/install/setup.bash
 
 kill_all() {
-  pkill -f spawn_for_core; pkill -f bring_up_core_stage; pkill -f ros2_control_node
-  pkill -f publisher_node; pkill -f flying_disc_feeder; pkill -f default_server_endpoint
-  pkill -f rosbridge_websocket; pkill -f 'Simulator.x86_64'; sleep 5
+  # launch を殺しても配下のノードは生き残る。個別に狙って確実に落とす。
+  # 残ると default_server_endpoint が二重になり、ポート 10000 の奪い合いで
+  # シミュレータの ROS 接続が切断と再接続を繰り返す (実際に 275 回起きた)。
+  for pat in spawn_for_core bring_up_core_stage ros2_control_node publisher_node \
+             flying_disc_feeder operator_stream default_server_endpoint \
+             rosbridge_websocket manager_node teleop_node robot_state_publisher \
+             ffmpeg spawner load_world 'Simulator.x86_64'; do
+    pkill -9 -f "$pat" 2>/dev/null
+  done
+  sleep 5
+  return 0
 }
 wait_for() {
   local end=$((SECONDS+$3))

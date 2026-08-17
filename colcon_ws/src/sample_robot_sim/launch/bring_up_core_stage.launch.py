@@ -8,8 +8,8 @@ Isaac Sim 本体を起動して USD ステージを開いていましたが、Un
   3. load_world サービス呼び出し (SDF のステージを読ませる)
 
 の 3 段構えになります。この launch はその 3 つと、フライングディスクの供給
-(flying_disc_feeder)・試合管理 (game_manager)・ブラウザ操縦用の rosbridge を
-まとめて起動します。
+(flying_disc_feeder)・映像配信 (operator_stream)・試合管理 (game_manager)・
+ブラウザ操縦用の rosbridge をまとめて起動します。
 
 launch 引数:
   simulator_path   シミュレータ実行ファイル。既定は docker イメージ内の展開先。
@@ -124,6 +124,19 @@ def generate_launch_description():
         output='screen',
     )
 
+    # 操縦画面の映像を H.264 で配信する。ブラウザは ws://<host>:9091/robot<N>
+    # を開く (tools/robot_<N>_control.html)。
+    #
+    # rosbridge 経由の JPEG (base64) だと 1 系統 2.8 Mbps、8 系統で 23 Mbps に
+    # なる。H.264 なら同じ画をおよそ 1/3 で送れる。視聴者が居ない系統は
+    # エンコードしないので、誰も見ていない機体のぶんは CPU を使わない。
+    operator_stream = Node(
+        package='core_sim_utils',
+        executable='operator_stream',
+        name='operator_stream',
+        output='screen',
+    )
+
     game_manager = Node(
         package='game_manager',
         executable='manager_node',
@@ -158,6 +171,7 @@ def generate_launch_description():
         tcp_endpoint,
         load_world,
         flying_disc_feeder,
+        operator_stream,
         game_manager,
         rosbridge_websocket,
     ])
