@@ -7,8 +7,9 @@ Isaac Sim 本体を起動して USD ステージを開いていましたが、Un
   2. ROS-TCP-Endpoint (シミュレータと ROS 2 をつなぐ)
   3. load_world サービス呼び出し (SDF のステージを読ませる)
 
-の 3 段構えになります。この launch はその 3 つと、試合管理 (game_manager)・
-ブラウザ操縦用の rosbridge をまとめて起動します。
+の 3 段構えになります。この launch はその 3 つと、フライングディスクの供給
+(flying_disc_feeder)・試合管理 (game_manager)・ブラウザ操縦用の rosbridge を
+まとめて起動します。
 
 launch 引数:
   simulator_path   シミュレータ実行ファイル。既定は docker イメージ内の展開先。
@@ -32,6 +33,8 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
+
+import xacro
 
 DEFAULT_SIMULATOR_PATH = os.path.join(
     os.path.expanduser('~'),
@@ -98,6 +101,29 @@ def generate_launch_description():
         ],
     )
 
+    # フライングディスクの供給。以前は 1 台につき 20 枚を起動時に積み上げて
+    # いたが、接触したまま積み重なった剛体はソルバのコストが高く、2 台ぶんの
+    # 40 枚で物理が実時間に収まらなくなっていた (カメラ映像が 2.8 FPS まで低下)。
+    # 装填口には常に 1 枚だけ置き、撃つたびに次の 1 枚を作る。
+    # 場に残るディスクは全機体あわせて max_alive 枚に保つ。
+    flying_disc_urdf_path = os.path.join('/tmp', 'flying_disc.urdf')
+    flying_disc_doc = xacro.process_file(os.path.join(
+        get_package_share_directory('flying_disc_description'),
+        'urdf', 'flying_disc.urdf.xacro'))
+    with open(flying_disc_urdf_path, 'w') as f:
+        f.write(flying_disc_doc.toprettyxml(indent='  '))
+
+    flying_disc_feeder = Node(
+        package='core_sim_utils',
+        executable='flying_disc_feeder',
+        name='flying_disc_feeder',
+        parameters=[{
+            'urdf_path': flying_disc_urdf_path,
+            'max_alive': 24,
+        }],
+        output='screen',
+    )
+
     game_manager = Node(
         package='game_manager',
         executable='manager_node',
@@ -131,6 +157,7 @@ def generate_launch_description():
         simulator,
         tcp_endpoint,
         load_world,
+        flying_disc_feeder,
         game_manager,
         rosbridge_websocket,
     ])

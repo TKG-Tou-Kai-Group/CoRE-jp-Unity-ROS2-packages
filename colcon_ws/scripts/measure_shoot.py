@@ -17,6 +17,11 @@ velocity_controller/commands は teleop と同じ [射出輪, 射出輪, 装填]
 計測はシミュレーション時間で区切る。実時間で区切ると、物理レートを変えたときに
 「射出できた枚数」がフレームレートの差で変わってしまい比較にならない。
 
+ディスクは試験中に現れたものを全部追跡する。開始時のスナップショットだけを見る
+作りにしていると、都度生成 (flying_disc_feeder) では名前が毎回変わるため、
+最初の 1 枚しか数えられない (実測では 28 ストロークで「0/1」と出た。実際には
+初速 30.8 m/s で正常に射出されていた)。
+
 初速は GetEntitiesStates の twist (真値) をポーリングした最大値。ポーリングは
 Unity のフレームレートが上限なので、フレームレートが低い条件ほど飛翔中の
 サンプルが減り、ピークを取り逃して低めに出る。初速どうしを直接比べるときは
@@ -39,7 +44,9 @@ from std_msgs.msg import Float64MultiArray
 
 from simulation_interfaces.srv import GetEntitiesStates
 
-WHEEL_VELOCITY = 800.0
+# 射出輪の指令速度 [rad/s]。teleop の shoot_wheel_velocity と揃えること。
+# 初速 = 射出輪の半径 0.04 x この値。500 で約 20 m/s。
+WHEEL_VELOCITY = 500.0
 LOADER_FEED = 1.0
 LOADER_IDLE = -1.0
 
@@ -158,8 +165,8 @@ def main():
 
     node.wait_sim(0.5)
     start = node.disc_states()
-    if not start:
-        raise RuntimeError(f'{args.robot} のディスクが見つからない')
+    if start is None:
+        raise RuntimeError('ディスクの状態を取得できない')
 
     # 射出輪を定常まで上げてから装填を始める
     node.wait_sim(args.spinup)
@@ -167,7 +174,20 @@ def main():
         node.wheel_vel.clear()
     spinup_samples = None
 
-    peak = {name: 0.0 for name in start}
+    # name -> [初めて見た位置, 最後に見た位置, 最大速度]
+    # 途中で生成されたものも、FIFO で消えたものも取りこぼさないようにする。
+    seen = {}
+
+    def observe(states):
+        for name, (pos, speed) in states.items():
+            rec = seen.get(name)
+            if rec is None:
+                seen[name] = [pos, pos, speed]
+            else:
+                rec[1] = pos
+                rec[2] = max(rec[2], speed)
+
+    observe(start)
     samples = 0
     strokes = 0
     t0 = node.now()
@@ -191,9 +211,7 @@ def main():
         cur = node.disc_states()
         if cur:
             samples += 1
-            for name, (_, speed) in cur.items():
-                if name in peak:
-                    peak[name] = max(peak[name], speed)
+            observe(cur)
 
     node.loader = LOADER_IDLE
     with node.lock:
@@ -202,21 +220,21 @@ def main():
 
     node.wait_sim(args.settle)
     end = node.disc_states()
+    if end:
+        observe(end)
 
     launched = []
-    for name, (p0, _) in sorted(start.items()):
-        if name not in end:
-            continue
-        p1 = end[name][0]
-        moved = math.dist(p0, p1)
+    for name in sorted(seen):
+        first, last, peak_speed = seen[name]
+        moved = math.dist(first, last)
         if moved >= LAUNCHED_DISTANCE:
-            launched.append((name, moved, peak[name]))
+            launched.append((name, moved, peak_speed))
 
     motion = ('静止' if node.drive_cmd is None else
               f'走行中 vx={args.vx} vy={args.vy} wz={args.wz}')
     print(f'ロボット {args.robot} / 装填 {args.duration:.0f} s '
           f'(シミュレーション時間) / {strokes} ストローク / {motion}')
-    print(f'  射出できた枚数   {len(launched)} / {len(start)} '
+    print(f'  射出できた枚数   {len(launched)} / 観測 {len(seen)} 枚 '
           f'({100.0 * len(launched) / max(strokes, 1):.0f}% / ストローク)')
     if wheel:
         print(f'  射出輪の実測速度 {sum(wheel) / len(wheel):+.1f} rad/s '

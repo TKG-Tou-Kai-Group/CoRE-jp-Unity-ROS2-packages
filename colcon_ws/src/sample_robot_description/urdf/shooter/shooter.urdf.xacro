@@ -65,6 +65,29 @@
        ありえない値だった (izz = m r^2 / 2 なら 0.008)。慣性が過大なぶん食い込みの
        反力を一切受け流さず、上の力積を増幅していた。800 rad/s での回転エネルギは
        この値でも 1 発 (7.7 J) に対して十分余裕がある。 -->
+  <!--
+    バレル (押さえ) の寸法。
+    ディスクは底板の上面 (シュータ座標 z = +0.04) に載り、厚み 0.02 なので
+    上面が +0.06。バレルの下面をそこから barrel_clearance だけ上に置くと、
+    通路で待っているディスクが浮き上がれなくなる。
+
+    以前はバレルが x +0.10〜+0.20 にしか無く、ディスクが待機する通路
+    (x -0.10〜+0.12) の上には何も無かった。押さえが無いぶん噛み方が安定せず、
+    初速がばらついていた (中央 25.8 m/s、理論 32 m/s)。通路の後端から
+    射出輪の先まで覆う長さに変える。
+  -->
+  <xacro:property name="barrel_clearance" value="0.005"/>
+  <xacro:property name="barrel_thickness" value="0.04"/>
+  <xacro:property name="barrel_back_x"  value="-0.12"/>
+  <xacro:property name="barrel_front_x" value="0.20"/>
+  <xacro:property name="barrel_length"
+                  value="${barrel_front_x - barrel_back_x}"/>
+  <xacro:property name="barrel_center_x"
+                  value="${(barrel_front_x + barrel_back_x) / 2}"/>
+  <!-- 下面 = ディスク上面 (0.06) + 隙間。中心はそこから厚みの半分だけ上。 -->
+  <xacro:property name="barrel_center_z"
+                  value="${0.06 + barrel_clearance + barrel_thickness / 2}"/>
+
   <xacro:property name="roller_mass"   value="0.5"/>
   <xacro:property name="roller_izz"
                   value="${0.5 * roller_mass * roller_radius * roller_radius}"/>
@@ -103,7 +126,7 @@
         </link>
 
         <joint name="shooter_barel_link_joint" type="fixed">
-          <origin rpy="0 0 0" xyz="0.15 0.0 0.09"/>
+          <origin rpy="0 0 0" xyz="${barrel_center_x} 0.0 ${barrel_center_z}"/>
           <parent link="shooter_base_link"/>
           <child link="shooter_barel_link"/>
         </joint>
@@ -111,14 +134,14 @@
         <link name="shooter_barel_link">
           <visual>
                 <geometry>
-                  <box size="0.1 0.18 0.04" />
+                  <box size="${barrel_length} 0.18 ${barrel_thickness}" />
                 </geometry>
                 <material name="shooter_unit"/>
           </visual>
           <collision>
             <collision_material name="shooter_unit"/>
                 <geometry>
-                  <box size="0.1 0.18 0.04" />
+                  <box size="${barrel_length} 0.18 ${barrel_thickness}" />
                 </geometry>
           </collision>
           <inertial>

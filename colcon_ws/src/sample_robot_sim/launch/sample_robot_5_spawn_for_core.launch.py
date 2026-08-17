@@ -4,8 +4,9 @@ Isaac 版の sample_robot_5_spawn_for_core.launch.py に対応します。違い
 
 - スポーンは isaac_ros2_scripts/spawn_robot ではなく simulation_ros2_utils/spawn_entity
   (simulation_interfaces の spawn_entity サービス) 経由。
-- フライングディスクは 20 枚入りの USD ではなく、1 枚ぶんの URDF を
-  core_sim_utils/spawn_flying_discs で 20 個スポーンする。
+- フライングディスクは起動時に積まない。bring_up_core_stage が起動する
+  core_sim_utils/flying_disc_feeder が、装填口に常に 1 枚だけ置き、
+  撃つたびに次の 1 枚を作る。
 
 走行の指令はシミュレータが /<エンティティ名>/cmd_vel を直接購読します。
 オムニホイールを車体への直接加力 (body_twist_drive) へ置き換えたため、
@@ -21,8 +22,6 @@ import os
 from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
-from launch.actions import RegisterEventHandler
-from launch.event_handlers import OnProcessExit
 from launch.substitutions import PathJoinSubstitution
 
 from launch_ros.actions import Node
@@ -34,10 +33,6 @@ ROBOT_NAME = 'sample_robot_5'
 ROBOT_START_POSITION = [-4.5, -11.25, 0.1]
 ROBOT_START_YAW = 1.57
 
-# シュータの装填口に積むディスク。Isaac 版の flying_disc_20set.usd 相当。
-FLYING_DISC_COUNT = 20
-FLYING_DISC_Z_OFFSET = 0.55   # base_link からの高さ
-FLYING_DISC_Z_SPACING = 0.021  # 厚み 0.02 + 隙間 0.001。広いと各段が落下して跳ね、積み重ねが崩れる
 
 
 def wrap_yaml_text(input_path: str, robot_name: str, output_path: str) -> None:
@@ -60,7 +55,6 @@ def wrap_yaml_text(input_path: str, robot_name: str, output_path: str) -> None:
 
 def generate_launch_description():
     sample_robot_description_path = get_package_share_directory('sample_robot_description')
-    flying_disc_description_path = get_package_share_directory('flying_disc_description')
 
     # --- ロボットの URDF を xacro から生成 -------------------------------
     sample_robot_xacro_file = os.path.join(
@@ -73,13 +67,6 @@ def generate_launch_description():
 
     params = {'robot_description': sample_robot_desc}
 
-    # --- ディスクの URDF も同様に展開 -------------------------------------
-    flying_disc_xacro_file = os.path.join(
-        flying_disc_description_path, 'urdf', 'flying_disc.urdf.xacro')
-    flying_disc_urdf_path = os.path.join('/tmp', ROBOT_NAME + '_flying_disc.urdf')
-    flying_disc_doc = xacro.process_file(flying_disc_xacro_file)
-    with open(flying_disc_urdf_path, 'w') as f:
-        f.write(flying_disc_doc.toprettyxml(indent='  '))
 
     rviz_config_file = os.path.join(
         sample_robot_description_path, 'config', 'sample_robot_description.rviz')
@@ -113,25 +100,6 @@ def generate_launch_description():
         output='screen',
     )
 
-    # ロボットが出来てから積む。先に積むと落下してしまう。
-    flying_disc_spawn = Node(
-        package='core_sim_utils',
-        executable='spawn_flying_discs',
-        name='flying_disc_spawn',
-        parameters=[{
-            'urdf_path': flying_disc_urdf_path,
-            'name_prefix': ROBOT_NAME + '_flying_disc',
-            'count': FLYING_DISC_COUNT,
-            'x': ROBOT_START_POSITION[0],
-            'y': ROBOT_START_POSITION[1],
-            'z': ROBOT_START_POSITION[2] + FLYING_DISC_Z_OFFSET,
-            'R': 0.0,
-            'P': 0.0,
-            'Y': ROBOT_START_YAW,
-            'z_spacing': FLYING_DISC_Z_SPACING,
-        }],
-        output='screen',
-    )
 
     robot_config_path = os.path.join(
         sample_robot_description_path, 'config', 'sample_robot_config.yaml')
@@ -238,12 +206,6 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
-        RegisterEventHandler(
-            event_handler=OnProcessExit(
-                target_action=spawn_robot,
-                on_exit=[flying_disc_spawn],
-            )
-        ),
         node_robot_state_publisher,
         spawn_robot,
         control_node,
