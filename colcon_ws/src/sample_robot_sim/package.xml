@@ -30,9 +30,7 @@
   <exec_depend>game_manager</exec_depend>
   <exec_depend>hp_manager</exec_depend>
   <exec_depend>core_jp_camera_publisher</exec_depend>
-  <exec_depend>omni_wheel_controller</exec_depend>
   <exec_depend>teleop_twist_joy_for_sample_robot</exec_depend>
-  <exec_depend>velocity_pub</exec_depend>
   <exec_depend>joint_trajectory_controller</exec_depend>
   <exec_depend>joint_state_broadcaster</exec_depend>
   <exec_depend>launch</exec_depend>

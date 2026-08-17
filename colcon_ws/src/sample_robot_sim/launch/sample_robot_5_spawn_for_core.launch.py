@@ -7,6 +7,11 @@ Isaac 版の sample_robot_5_spawn_for_core.launch.py に対応します。違い
 - フライングディスクは 20 枚入りの USD ではなく、1 枚ぶんの URDF を
   core_sim_utils/spawn_flying_discs で 20 個スポーンする。
 
+走行の指令はシミュレータが /<エンティティ名>/cmd_vel を直接購読します。
+オムニホイールを車体への直接加力 (body_twist_drive) へ置き換えたため、
+cmd_vel を車輪速度へ変換する omni_wheel_controller と velocity_pub は
+不要になりました。ros2_control が担うのは射出機構だけです。
+
 センサのトピック名はシミュレータが /<エンティティ名>/<リンク名>/... で決めます。
 Isaac のようにリンクの親子関係は入らないので、remap もそれに合わせてあります。
 """
@@ -153,13 +158,6 @@ def generate_launch_description():
         ros_arguments=[],
     )
 
-    omni_wheel_controller_spawner = Node(
-        package='controller_manager',
-        executable='spawner',
-        arguments=['omni_wheel_controller',
-                   '--controller-manager', '/' + ROBOT_NAME + '/controller_manager'],
-        ros_arguments=[],
-    )
 
     velocity_controller_spawner = Node(
         package='controller_manager',
@@ -169,15 +167,6 @@ def generate_launch_description():
         ros_arguments=[],
     )
 
-    velocity_converter = Node(
-        package='velocity_pub',
-        name='velocity_pub',
-        executable='velocity_pub',
-        namespace=ROBOT_NAME,
-        remappings=[
-            ('cmd_vel_stamped', 'omni_wheel_controller/cmd_vel'),
-        ],
-    )
 
     rviz = Node(
         package='rviz2',
@@ -259,9 +248,7 @@ def generate_launch_description():
         spawn_robot,
         control_node,
         joint_state_broadcaster_spawner,
-        omni_wheel_controller_spawner,
         velocity_controller_spawner,
-        velocity_converter,
         # rviz,
         teleop_twist_joy,
         core_jp_camera_publisher,

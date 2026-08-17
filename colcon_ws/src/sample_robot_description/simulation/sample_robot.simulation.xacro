@@ -22,6 +22,43 @@
 
     <!-- =============== Unity Simulator =============== -->
     <simulation>
+      <!--
+        車体速度による駆動。/<エンティティ名>/cmd_vel (geometry_msgs/Twist) を
+        シミュレータが直接購読し、各物理ステップで「指令速度 - 現在速度」を
+        詰めるのに要る力・トルクを車体へ加える。
+
+        オムニホイールの置き換え。フリーローラ 8 個 x 4 輪 + ハウジングで
+        1 台あたり 40 リンクあり、これがソルバのコストの大半を占めていた。
+        置き換えで 8 台同時でも RTF 1.0 / 10 FPS が出る (置き換え前は
+        RTF 0.66 / 2.0 FPS)。指令への追従も 54% から 100% になる。
+
+        速度代入ではなく加力なので、他機に押されるし、押し返せる。
+
+        上限値は置き換え前の omni_wheel_controller の設定をそのまま引き継ぐ
+        (linear.x: max_velocity 1.0 / max_acceleration 0.4、
+         angular.z: max_velocity 1.5 / max_acceleration 0.8)。
+        ただし以前は車輪が滑って指令の 54% しか出ていなかったので、
+        同じ指令でも実際の速度は約 1.85 倍になる。競技の間合いが変わるため、
+        必要なら max_linear_velocity を 0.54 前後まで落として合わせること。
+
+        command_timeout は omni_wheel_controller の cmd_vel_timeout に相当する。
+        指令が途切れた機体が走り続けないようにするためのもの。接地脚は
+        摩擦 0 なので、これが無いと止まらない。
+      -->
+      <!--
+        command_topic は書かないこと。書くと entity_namespace (spawn_entity は
+        空で投げる) がそのまま使われ、8 台全部が 1 本の /cmd_vel を共有して
+        一斉に同じ指令で動く。省略すればセンサと同じ /<エンティティ名>/cmd_vel
+        になり、機体ごとに分かれる。
+      -->
+      <sensor name="base_frame_link" type="body_twist_drive">
+        <max_linear_velocity>1.0</max_linear_velocity>
+        <max_angular_velocity>1.5</max_angular_velocity>
+        <max_linear_acceleration>0.4</max_linear_acceleration>
+        <max_angular_acceleration>0.8</max_angular_acceleration>
+        <command_timeout>0.5</command_timeout>
+      </sensor>
+
       <!-- 操縦用の一人称カメラ (720p) -->
       <sensor name="camera_link" type="camera">
         <update_rate>10.0</update_rate>

@@ -11,11 +11,13 @@ CoRE の競技環境を動かすための ROS 2 パッケージをまとめた�
 サービス (`load_world` / `spawn_entities` / `set_simulation_state` / `reset_simulation` …) と
 `topic_based_ros2_control` が担います。`topic_based_ros2_control` は hardware_interface を提供し、
 ros2_control からのコマンドを `/<ロボット名>/joint_command` としてシミュレータへ送り、
-`/<ロボット名>/joint_states` を状態として受け取ります。
+`/<ロボット名>/joint_states` を状態として受け取ります。ros2_control が担うのは
+**射出機構だけ**で、走行はシミュレータが `/<ロボット名>/cmd_vel` を直接購読します
+(後述の「走行の駆動方式」を参照)。
 
 このリポジトリでできること
 - CoRE ステージの読み込み（SDF ワールド）
-- オムニホイールロボットの生成（最大 8 台）
+- ロボットの生成（最大 8 台）
 - フライングディスクの装填（1 台につき 20 枚）
 - ブラウザ経由でのロボット操縦（キーボード・ゲームパッド対応、キーコンフィグ機能付き）
 - 720p（1280x720）カメラ映像のリアルタイム配信（JPEG 圧縮、rosbridge 経由）
@@ -27,7 +29,10 @@ ros2_control からのコマンドを `/<ロボット名>/joint_command` とし�
 
 Isaac 版と違い、Isaac Sim のイメージも NGC のアカウントも要りません。
 シミュレータは Docker イメージのビルド時に GitHub Releases から取得します
-（既定は **v1.0.5**）。
+（既定は **v1.1.0**）。
+
+> **注意**: 走行の駆動に **v1.1.0 以降が必要**です（`body_twist_drive` に対応した
+> バージョン）。v1.0.5 以前では `cmd_vel` が無視され、ロボットが動きません。
 
 ## 使い方
 
@@ -51,7 +56,6 @@ Isaac 版と違い、Isaac Sim のイメージも NGC のアカウントも要�
    | `simulation_ros2_utils` | 上記を叩く CLI と、シナリオ試験用のクライアント |
    | `ROS-TCP-Endpoint` | シミュレータとの接続口 |
    | `topic_based_ros2_control` | ros2_control をトピック経由でシミュレータへ繋ぐ |
-   | `omni_wheel_controller` | オムニホイールの車体速度→車輪速度の変換 |
 
 1. Docker イメージをビルドする
    ```bash
@@ -155,6 +159,53 @@ Isaac 版と違い、Isaac Sim のイメージも NGC のアカウントも要�
      | 俯瞰画像切替 | LB (L1) |
      | リセット | Start |
      | 速度調整 | 十字キー上下 |
+
+## 走行の駆動方式
+
+走行は**シミュレータが車体へ直接力を加えて**行います。`/<ロボット名>/cmd_vel`
+(`geometry_msgs/Twist`、車体基準) をシミュレータが直接購読し、各物理ステップで
+「指令速度 − 現在速度」を詰めるのに要る力とトルクを車体へ加えます。ros2_control も
+`omni_wheel_controller` も経由しません。
+
+以前はオムニホイール 4 輪で床の摩擦により走らせていましたが、1 輪あたり
+フリーローラ 8 個 + ハウジング 2 個、4 輪で 40 リンクあり、これが PhysX ソルバの
+コストの大半を占めていました。ロボット 2 台 + ディスク 40 枚で物理が実時間に
+収まらなくなり、Unity が 1 フレームに 0.333 秒ぶん (`Time.maximumDeltaTime` の既定値)
+の物理をまとめて回すため、**カメラ映像が 2.8 FPS まで落ちていました**。
+
+置き換えによる実測値 (physics_hz 200、ロボット 2 台 + ディスク 40 枚):
+
+| | オムニホイール | 直接加力 |
+|---|---|---|
+| カメラ映像 | 2.82 FPS | **10.00 FPS** |
+| RTF | 0.94 | **1.000** |
+| 8 台での FPS / RTF | 2.02 FPS / 0.66 | **9.97 FPS / 0.998** |
+| 前後の指令追従 | 54% | **100%** |
+| 左右の指令追従 | 54% | **100%** |
+| 旋回の指令追従 | 82% | **97〜100%** |
+| ロボット 1 台のリンク数 | 69 | **29** |
+
+速度を代入するのではなく力で追従させているので、**他機に押されるし押し返せます**
+(指令ゼロで静止している機体を 1.0 m/s で押して 2.82 m 動かせることを確認済み)。
+
+速度・加速度の上限は
+[simulation/sample_robot.simulation.xacro](colcon_ws/src/sample_robot_description/simulation/sample_robot.simulation.xacro)
+の `<sensor type="body_twist_drive">` にあります。値は以前の `omni_wheel_controller` の
+設定をそのまま引き継いでいます (1.0 m/s / 0.4 m/s²、1.5 rad/s / 0.8 rad/s²)。
+
+> **注意**: 以前は車輪が滑って指令の 54% しか出ていませんでした。同じ指令値でも
+> 実際の速度は約 1.85 倍になるので、競技の間合いが変わります。以前の実効速度に
+> 合わせたい場合は `max_linear_velocity` を 0.54 前後まで下げてください。
+
+車体を床から浮かせるために、車輪と同じ位置・同じ半径 (0.05 m) の摩擦 0 の球を
+`base_frame_link` の `<collision>` として 4 個付けています
+([urdf/base/base.urdf.xacro](colcon_ws/src/sample_robot_description/urdf/base/base.urdf.xacro)
+の `base_skid`)。リンクは増えません。これが無いと車体が 5 cm 下がって床に直付きになり、
+フィールドの構造物に引っ掛かって走れなくなります (実測: 上限の 156 N を掛けても速度 0)。
+車輪の見た目もここでハウジングの STL を置いて再現しています (回転はしません)。
+
+この駆動方式には **Unity_ROS2_Robot_Simulator 側の `body_twist_drive` 対応が必要**です。
+対応していないバージョンでは `cmd_vel` が無視され、ロボットは動きません。
 
 ## Isaac 版からの変更点
 
