@@ -7,7 +7,8 @@ Isaac Sim 本体を起動して USD ステージを開いていましたが、Un
   2. ROS-TCP-Endpoint (シミュレータと ROS 2 をつなぐ)
   3. load_world サービス呼び出し (SDF のステージを読ませる)
 
-の 3 段構えになります。この launch はその 3 つと、試合管理 (game_manager)・
+の 3 段構えになります。この launch はその 3 つと、フライングディスクの供給
+(flying_disc_feeder)・映像配信 (operator_stream)・試合管理 (game_manager)・
 ブラウザ操縦用の rosbridge をまとめて起動します。
 
 launch 引数:
@@ -27,11 +28,14 @@ from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess, TimerAction
-from launch.conditions import IfCondition
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.conditions import IfCondition, UnlessCondition
+from launch.substitutions import (
+    LaunchConfiguration, PathJoinSubstitution, PythonExpression)
 
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
+
+import xacro
 
 DEFAULT_SIMULATOR_PATH = os.path.join(
     os.path.expanduser('~'),
@@ -56,6 +60,7 @@ def generate_launch_description():
         DeclareLaunchArgument('launch_endpoint', default_value='true'),
         DeclareLaunchArgument('world_path', default_value=default_world_path),
         DeclareLaunchArgument('startup_delay', default_value='15.0'),
+        DeclareLaunchArgument('video_input', default_value='jpeg'),
     ]
 
     # シミュレータの起動時設定 (物理レートなど)。既定は 50 Hz だが、オムニホイールの
@@ -98,6 +103,56 @@ def generate_launch_description():
         ],
     )
 
+    # フライングディスクの供給。以前は 1 台につき 20 枚を起動時に積み上げて
+    # いたが、接触したまま積み重なった剛体はソルバのコストが高く、2 台ぶんの
+    # 40 枚で物理が実時間に収まらなくなっていた (カメラ映像が 2.8 FPS まで低下)。
+    # 装填口には常に 1 枚だけ置き、撃つたびに次の 1 枚を作る。
+    # 場に残るディスクは全機体あわせて max_alive 枚に保つ。
+    flying_disc_urdf_path = os.path.join('/tmp', 'flying_disc.urdf')
+    flying_disc_doc = xacro.process_file(os.path.join(
+        get_package_share_directory('flying_disc_description'),
+        'urdf', 'flying_disc.urdf.xacro'))
+    with open(flying_disc_urdf_path, 'w') as f:
+        f.write(flying_disc_doc.toprettyxml(indent='  '))
+
+    flying_disc_feeder = Node(
+        package='core_sim_utils',
+        executable='flying_disc_feeder',
+        name='flying_disc_feeder',
+        parameters=[{
+            'urdf_path': flying_disc_urdf_path,
+            'max_alive': 24,
+        }],
+        output='screen',
+    )
+
+    # 操縦画面の映像を H.264 で配信する。ブラウザは ws://<host>:9091/robot<N>
+    # を開く (tools/robot_<N>_control.html)。
+    #
+    # rosbridge 経由の JPEG (base64) だと 1 系統 2.8 Mbps、8 系統で 23 Mbps に
+    # なる。H.264 なら同じ画をおよそ 1/3 で送れる。視聴者が居ない系統は
+    # エンコードしないので、誰も見ていない機体のぶんは CPU を使わない。
+    # video_input:=raw にすると、JPEG を経由せず生画像を受け取る。
+    # 両端 (カメラ配信の符号化と、ここでの復号) を省ける。
+    # ロボット側も camera_output_format:=raw で起動すること。
+    operator_stream = Node(
+        package='core_sim_utils',
+        executable='operator_stream',
+        name='operator_stream',
+        output='screen',
+        condition=UnlessCondition(
+            PythonExpression(["'", LaunchConfiguration('video_input'), "' == 'raw'"])),
+    )
+    operator_stream_raw = Node(
+        package='core_sim_utils',
+        executable='operator_stream',
+        name='operator_stream',
+        arguments=['--raw'],
+        output='screen',
+        condition=IfCondition(
+            PythonExpression(["'", LaunchConfiguration('video_input'), "' == 'raw'"])),
+    )
+
     game_manager = Node(
         package='game_manager',
         executable='manager_node',
@@ -131,6 +186,9 @@ def generate_launch_description():
         simulator,
         tcp_endpoint,
         load_world,
+        flying_disc_feeder,
+        operator_stream,
+        operator_stream_raw,
         game_manager,
         rosbridge_websocket,
     ])

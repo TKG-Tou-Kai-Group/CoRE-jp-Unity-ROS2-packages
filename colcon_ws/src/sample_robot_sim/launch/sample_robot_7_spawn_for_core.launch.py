@@ -4,8 +4,14 @@ Isaac 版の sample_robot_7_spawn_for_core.launch.py に対応します。違い
 
 - スポーンは isaac_ros2_scripts/spawn_robot ではなく simulation_ros2_utils/spawn_entity
   (simulation_interfaces の spawn_entity サービス) 経由。
-- フライングディスクは 20 枚入りの USD ではなく、1 枚ぶんの URDF を
-  core_sim_utils/spawn_flying_discs で 20 個スポーンする。
+- フライングディスクは起動時に積まない。bring_up_core_stage が起動する
+  core_sim_utils/flying_disc_feeder が、装填口に常に 1 枚だけ置き、
+  撃つたびに次の 1 枚を作る。
+
+走行の指令はシミュレータが /<エンティティ名>/cmd_vel を直接購読します。
+オムニホイールを車体への直接加力 (body_twist_drive) へ置き換えたため、
+cmd_vel を車輪速度へ変換する omni_wheel_controller と velocity_pub は
+不要になりました。ros2_control が担うのは射出機構だけです。
 
 センサのトピック名はシミュレータが /<エンティティ名>/<リンク名>/... で決めます。
 Isaac のようにリンクの親子関係は入らないので、remap もそれに合わせてあります。
@@ -16,8 +22,8 @@ import os
 from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
-from launch.actions import RegisterEventHandler
-from launch.event_handlers import OnProcessExit
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
 from launch.substitutions import PathJoinSubstitution
 
 from launch_ros.actions import Node
@@ -29,10 +35,6 @@ ROBOT_NAME = 'sample_robot_7'
 ROBOT_START_POSITION = [-5.5, -11.25, 0.1]
 ROBOT_START_YAW = 1.57
 
-# シュータの装填口に積むディスク。Isaac 版の flying_disc_20set.usd 相当。
-FLYING_DISC_COUNT = 20
-FLYING_DISC_Z_OFFSET = 0.55   # base_link からの高さ
-FLYING_DISC_Z_SPACING = 0.021  # 厚み 0.02 + 隙間 0.001。広いと各段が落下して跳ね、積み重ねが崩れる
 
 
 def wrap_yaml_text(input_path: str, robot_name: str, output_path: str) -> None:
@@ -53,28 +55,39 @@ def wrap_yaml_text(input_path: str, robot_name: str, output_path: str) -> None:
                 fout.write(f"  {line}")
 
 
+# シミュレータから受け取るカメラの形式。生画像は 540p で 1 枚 1.56 MB あり、
+# 8 機ぶん x 一人称/俯瞰の 16 本が Unity から ros_tcp_endpoint への 1 本の
+# TCP に集まって溢れる。jpeg はシミュレータ側でワーカースレッドが符号化して
+# から渡すので、この経路が空く。
+#
+# 実測 (8 台, 960x540): jpeg は全機 10.10 FPS で送信キューの廃棄 23 件。
+# raw は最低 8.80 FPS で廃棄 16251 件。jpeg のほうが速く、経路も空く。
+# raw を残してあるのは、生画像が要る用途 (画像処理の入力など) のため。
+#
+# LaunchConfiguration ではなく環境変数なのは、URDF を組み立てる xacro が
+# launch の実行前に走るため。置換オブジェクトのままでは xacro に渡せない。
+# ros2 launch --show-args には出ないので、README に書いてある。
+CAMERA_FORMAT = os.environ.get('CORE_CAMERA_FORMAT', 'jpeg').lower()
+if CAMERA_FORMAT not in ('raw', 'jpeg'):
+    CAMERA_FORMAT = 'raw'
+CAMERA_SUFFIX = '/compressed' if CAMERA_FORMAT == 'jpeg' else ''
+
+
 def generate_launch_description():
     sample_robot_description_path = get_package_share_directory('sample_robot_description')
-    flying_disc_description_path = get_package_share_directory('flying_disc_description')
 
     # --- ロボットの URDF を xacro から生成 -------------------------------
     sample_robot_xacro_file = os.path.join(
         sample_robot_description_path, 'robots', ROBOT_NAME + '.urdf.xacro')
     sample_robot_urdf_path = os.path.join('/tmp', ROBOT_NAME + '.urdf')
-    sample_robot_doc = xacro.process_file(sample_robot_xacro_file, mappings={'use_sim': 'true'})
+    sample_robot_doc = xacro.process_file(sample_robot_xacro_file, mappings={'use_sim': 'true',
+                  'camera_format': CAMERA_FORMAT})
     sample_robot_desc = sample_robot_doc.toprettyxml(indent='  ')
     with open(sample_robot_urdf_path, 'w') as f:
         f.write(sample_robot_desc)
 
     params = {'robot_description': sample_robot_desc}
 
-    # --- ディスクの URDF も同様に展開 -------------------------------------
-    flying_disc_xacro_file = os.path.join(
-        flying_disc_description_path, 'urdf', 'flying_disc.urdf.xacro')
-    flying_disc_urdf_path = os.path.join('/tmp', ROBOT_NAME + '_flying_disc.urdf')
-    flying_disc_doc = xacro.process_file(flying_disc_xacro_file)
-    with open(flying_disc_urdf_path, 'w') as f:
-        f.write(flying_disc_doc.toprettyxml(indent='  '))
 
     rviz_config_file = os.path.join(
         sample_robot_description_path, 'config', 'sample_robot_description.rviz')
@@ -108,25 +121,6 @@ def generate_launch_description():
         output='screen',
     )
 
-    # ロボットが出来てから積む。先に積むと落下してしまう。
-    flying_disc_spawn = Node(
-        package='core_sim_utils',
-        executable='spawn_flying_discs',
-        name='flying_disc_spawn',
-        parameters=[{
-            'urdf_path': flying_disc_urdf_path,
-            'name_prefix': ROBOT_NAME + '_flying_disc',
-            'count': FLYING_DISC_COUNT,
-            'x': ROBOT_START_POSITION[0],
-            'y': ROBOT_START_POSITION[1],
-            'z': ROBOT_START_POSITION[2] + FLYING_DISC_Z_OFFSET,
-            'R': 0.0,
-            'P': 0.0,
-            'Y': ROBOT_START_YAW,
-            'z_spacing': FLYING_DISC_Z_SPACING,
-        }],
-        output='screen',
-    )
 
     robot_config_path = os.path.join(
         sample_robot_description_path, 'config', 'sample_robot_config.yaml')
@@ -153,13 +147,6 @@ def generate_launch_description():
         ros_arguments=[],
     )
 
-    omni_wheel_controller_spawner = Node(
-        package='controller_manager',
-        executable='spawner',
-        arguments=['omni_wheel_controller',
-                   '--controller-manager', '/' + ROBOT_NAME + '/controller_manager'],
-        ros_arguments=[],
-    )
 
     velocity_controller_spawner = Node(
         package='controller_manager',
@@ -169,15 +156,6 @@ def generate_launch_description():
         ros_arguments=[],
     )
 
-    velocity_converter = Node(
-        package='velocity_pub',
-        name='velocity_pub',
-        executable='velocity_pub',
-        namespace=ROBOT_NAME,
-        remappings=[
-            ('cmd_vel_stamped', 'omni_wheel_controller/cmd_vel'),
-        ],
-    )
 
     rviz = Node(
         package='rviz2',
@@ -208,15 +186,22 @@ def generate_launch_description():
 
     # シミュレータのカメラトピックは /<エンティティ名>/<リンク名>/image_raw。
     # Isaac 版の /<robot>/base_link/camera_link/image_raw から 1 階層減っている。
+    # 映像の出し方。operator_stream が H.264 化するときの入力になる。
+    #   jpeg … CompressedImage だけ出す (既定)
+    #   raw  … Image だけ出す。JPEG の符号化と復号を両端で省ける
+    #   both … 両方
     core_jp_camera_publisher = Node(
         package='core_jp_camera_publisher',
         name='publisher_node',
         executable='publisher_node',
         namespace=ROBOT_NAME,
+        parameters=[{'output_format': LaunchConfiguration('camera_output_format'),
+                     'input_format': CAMERA_FORMAT}],
         remappings=[
-            ('input_image_topic', '/' + ROBOT_NAME + '/camera_link/image_raw'),
-            ('top_view_image_topic', '/' + ROBOT_NAME + '/top_view_camera_link/image_raw'),
+            ('input_image_topic', '/' + ROBOT_NAME + '/camera_link/image_raw' + CAMERA_SUFFIX),
+            ('top_view_image_topic', '/' + ROBOT_NAME + '/top_view_camera_link/image_raw' + CAMERA_SUFFIX),
             ('output_image_topic', '/' + ROBOT_NAME + '/camera_link/image_compressed'),
+            ('output_image_raw_topic', '/' + ROBOT_NAME + '/camera_link/image_raw_overlay'),
             ('game_status', '/game_status'),
             ('countdown', '/countdown'),
             ('robot1_hp', '/sample_robot_1/robot_hp'),
@@ -237,10 +222,10 @@ def generate_launch_description():
         executable='manager_node',
         namespace=ROBOT_NAME,
         remappings=[
-            ('armor_topic_1', '/' + ROBOT_NAME + '/armor1_link/contact'),
-            ('armor_topic_2', '/' + ROBOT_NAME + '/armor2_link/contact'),
-            ('armor_topic_3', '/' + ROBOT_NAME + '/armor3_link/contact'),
-            ('armor_topic_4', '/' + ROBOT_NAME + '/armor4_link/contact'),
+            ('armor_topic_1', '/' + ROBOT_NAME + '/armor1_link/contact_count'),
+            ('armor_topic_2', '/' + ROBOT_NAME + '/armor2_link/contact_count'),
+            ('armor_topic_3', '/' + ROBOT_NAME + '/armor3_link/contact_count'),
+            ('armor_topic_4', '/' + ROBOT_NAME + '/armor4_link/contact_count'),
         ],
         parameters=[{
             'initial_hp': 200,
@@ -249,19 +234,12 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
-        RegisterEventHandler(
-            event_handler=OnProcessExit(
-                target_action=spawn_robot,
-                on_exit=[flying_disc_spawn],
-            )
-        ),
+        DeclareLaunchArgument('camera_output_format', default_value='jpeg'),
         node_robot_state_publisher,
         spawn_robot,
         control_node,
         joint_state_broadcaster_spawner,
-        omni_wheel_controller_spawner,
         velocity_controller_spawner,
-        velocity_converter,
         # rviz,
         teleop_twist_joy,
         core_jp_camera_publisher,

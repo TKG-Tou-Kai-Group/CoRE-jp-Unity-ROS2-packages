@@ -9,8 +9,16 @@
 
     camera  -> /<robot>/<link>/image_raw   (sensor_msgs/Image)
                /<robot>/<link>/camera_info (sensor_msgs/CameraInfo)
-    contact -> /<robot>/<link>/contact         (std_msgs/Bool)
+    camera (format=jpeg のとき)
+            -> /<robot>/<link>/image_raw/compressed (sensor_msgs/CompressedImage)
+               生画像の代わりに出る。720p の生画像は 1 枚 2.76 MB あり、
+               Unity から ros_tcp_endpoint への 1 本の TCP を詰まらせる
+    contact -> /<robot>/<link>/contact_count   (std_msgs/Int32)
+               /<robot>/<link>/contact         (std_msgs/Bool)
                /<robot>/<link>/contact/wrench  (geometry_msgs/WrenchStamped)
+
+  接触センサの後ろ 2 つは <publish_state> と <publish_wrench> を false に
+  すると止められます (既定は出す)。contact_count は常に出ます。
 
   Isaac 版はリンクの親子関係がトピック名に入り
   /<robot>/base_link/camera_link/image_raw でしたが、こちらはリンク名だけの
@@ -18,17 +26,65 @@
 -->
 <robot xmlns:xacro="http://ros.org/wiki/xacro">
 
-  <xacro:macro name="sample_robot_simulation" params="prefix">
+  <xacro:macro name="sample_robot_simulation" params="prefix camera_format:=raw">
 
     <!-- =============== Unity Simulator =============== -->
     <simulation>
-      <!-- 操縦用の一人称カメラ (720p) -->
+      <!--
+        車体速度による駆動。/<エンティティ名>/cmd_vel (geometry_msgs/Twist) を
+        シミュレータが直接購読し、各物理ステップで「指令速度 - 現在速度」を
+        詰めるのに要る力・トルクを車体へ加える。
+
+        オムニホイールの置き換え。フリーローラ 8 個 x 4 輪 + ハウジングで
+        1 台あたり 40 リンクあり、これがソルバのコストの大半を占めていた。
+        置き換えで 8 台同時でも RTF 1.0 / 10 FPS が出る (置き換え前は
+        RTF 0.66 / 2.0 FPS)。指令への追従も 54% から 100% になる。
+
+        速度代入ではなく加力なので、他機に押されるし、押し返せる。
+
+        上限値は置き換え前の omni_wheel_controller の設定をそのまま引き継ぐ
+        (linear.x: max_velocity 1.0 / max_acceleration 0.4、
+         angular.z: max_velocity 1.5 / max_acceleration 0.8)。
+        ただし以前は車輪が滑って指令の 54% しか出ていなかったので、
+        同じ指令でも実際の速度は約 1.85 倍になる。競技の間合いが変わるため、
+        必要なら max_linear_velocity を 0.54 前後まで落として合わせること。
+
+        command_timeout は omni_wheel_controller の cmd_vel_timeout に相当する。
+        指令が途切れた機体が走り続けないようにするためのもの。接地脚は
+        摩擦 0 なので、これが無いと止まらない。
+      -->
+      <!--
+        command_topic は書かないこと。書くと entity_namespace (spawn_entity は
+        空で投げる) がそのまま使われ、8 台全部が 1 本の /cmd_vel を共有して
+        一斉に同じ指令で動く。省略すればセンサと同じ /<エンティティ名>/cmd_vel
+        になり、機体ごとに分かれる。
+      -->
+      <sensor name="base_frame_link" type="body_twist_drive">
+        <max_linear_velocity>1.0</max_linear_velocity>
+        <max_angular_velocity>1.5</max_angular_velocity>
+        <max_linear_acceleration>0.4</max_linear_acceleration>
+        <max_angular_acceleration>0.8</max_angular_acceleration>
+        <command_timeout>0.5</command_timeout>
+      </sensor>
+
+      <!--
+        操縦用の一人称カメラ。
+
+        Unity から ros_tcp_endpoint への経路は TCP 1 本 + Python 1 スレッドで、
+        そこを生画像 (rgb8) が渡る。720p だと 1 枚 2.76 MB、8 機 x 一人称/俯瞰の
+        16 本で 442 MB/s になり、送りきれないぶんが送信キューから捨てられる。
+        捨てられ方は 1 フレーム内の publish 順、すなわち機体の生成順に効くので、
+        8 台構成では後ろの機体ほど落ちる (実測で 8 号機が 1.35 FPS)。
+        540p なら 8 機すべてが 10 FPS を保てる (実測で最低 9.60 FPS)。
+      -->
       <sensor name="camera_link" type="camera">
         <update_rate>10.0</update_rate>
         <horizontal_fov>1.3962634</horizontal_fov>
         <image>
-          <width>1280</width>
-          <height>720</height>
+          <width>960</width>
+          <height>540</height>
+          <format>${camera_format}</format>
+          <quality>75</quality>
         </image>
         <clip>
           <near>0.02</near>
@@ -43,6 +99,8 @@
         <image>
           <width>180</width>
           <height>180</height>
+          <format>${camera_format}</format>
+          <quality>75</quality>
         </image>
         <clip>
           <near>5.0</near>
@@ -50,18 +108,43 @@
         </clip>
       </sensor>
 
-      <!-- 装甲板の被弾検出。hp_manager が std_msgs/Bool の立ち上がりを数える -->
+      <!--
+        装甲板の被弾検出。hp_manager が std_msgs/Int32 (contact_count) の
+        増分を数える。
+
+        Bool の立ち上がりではなくカウンタを使うのは、経路のどこで落ちても
+        次の 1 通で追いつけるため。Bool は落ちた通に立ち上がりが乗っていると
+        その被弾が永久に失われる。
+
+        update_rate はディスクの接触時間 (物理 1〜数ステップ) より必ず粗い。
+        それでも取りこぼさないのは、接触の到着をセンサ側で数えていて、
+        サンプルの合間に始まって終わった接触も残るため。ここが決めるのは
+        検出漏れではなく報告の遅れだけなので、描画フレームレートに合わせる。
+        publisher は 1 フレームに 1 通しか出さないので、これより上げても
+        通数は増えず、値が効かないまま実測 10 Hz になるだけ。
+
+        Bool とレンチは hp_manager が使わないので止める。装甲板 4 枚 x 8 機で
+        毎秒 960 通ずつ、合わせて 1920 通/秒が経路から消える。
+      -->
       <sensor name="armor1_link" type="contact">
-        <update_rate>30.0</update_rate>
+        <update_rate>10.0</update_rate>
+        <publish_state>false</publish_state>
+        <publish_wrench>false</publish_wrench>
       </sensor>
       <sensor name="armor2_link" type="contact">
-        <update_rate>30.0</update_rate>
+        <update_rate>10.0</update_rate>
+        <publish_state>false</publish_state>
+        <publish_wrench>false</publish_wrench>
       </sensor>
       <sensor name="armor3_link" type="contact">
-        <update_rate>30.0</update_rate>
+        <update_rate>10.0</update_rate>
+        <publish_state>false</publish_state>
+        <publish_wrench>false</publish_wrench>
       </sensor>
       <sensor name="armor4_link" type="contact">
-        <update_rate>30.0</update_rate>
+        <update_rate>10.0</update_rate>
+        <publish_state>false</publish_state>
+        <publish_wrench>false</publish_wrench>
       </sensor>
     </simulation>
 

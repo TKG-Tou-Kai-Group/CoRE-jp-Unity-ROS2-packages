@@ -22,6 +22,7 @@ setup(
         'console_scripts': [
             'load_world = core_sim_utils.load_world:main',
             'spawn_flying_discs = core_sim_utils.spawn_flying_discs:main',
+            'flying_disc_feeder = core_sim_utils.flying_disc_feeder:main',
             'operator_stream = core_sim_utils.operator_stream:main',
         ],
     },

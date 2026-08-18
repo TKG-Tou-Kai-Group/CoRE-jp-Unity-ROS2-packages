@@ -2,12 +2,13 @@
 <robot name="sample_robot_7" xmlns:xacro="http://ros.org/wiki/xacro">
   <xacro:arg name="prefix" default="" />
   <xacro:arg name="use_sim" default="false" />
+  <!-- raw か jpeg。台数を積む構成では jpeg で経路の詰まりを避ける -->
+  <xacro:arg name="camera_format" default="raw" />
   
   <xacro:arg name="robot_name" default="sample_robot_7"/>
 
   <xacro:include filename="$(find sample_robot_description)/urdf/common.xacro"/>
   <xacro:include filename="$(find sample_robot_description)/urdf/base/base.urdf.xacro"/>
-  <xacro:include filename="$(find sample_robot_description)/urdf/wheel/wheel_100mm.urdf.xacro"/>
   <xacro:include filename="$(find sample_robot_description)/urdf/shooter/shooter.urdf.xacro"/>
 
   <xacro:include filename="$(find sample_robot_description)/simulation/sample_robot.simulation.xacro"/>
@@ -26,33 +27,21 @@
                                  izz="0.00001" />
     </inertial>
   </link>
-  <xacro:base_v0 parent="base_link">
+  <xacro:base_v0 parent="base_link" skids="true">
 	<origin xyz="0 0 0.06"/>
   </xacro:base_v0>
 
-  <!-- Wheel -->
-  <!-- Wheel0 -->
-  <xacro:omni_wheel prefix="wheel0" parent="base_link">
-	  <origin xyz="0.35 0.35 0.05" rpy="0 ${pi/2} ${pi/4}"/>
-  </xacro:omni_wheel>
+  <!--
+    駆動系はここにあったオムニホイール 4 輪 (1 輪あたりフリーローラ 8 個 +
+    ハウジング 2 個、4 輪で 40 リンク) を外してある。走行はシミュレータ側の
+    body_twist_drive が車体へ直接力を加えて行う
+    (simulation/sample_robot.simulation.xacro を参照)。
+    接地と車輪の見た目は base_v0 の skids="true" が受け持つ。
+  -->
 
-  <!-- Wheel1 -->
-  <xacro:omni_wheel prefix="wheel1" parent="base_link">
-	  <origin xyz="-0.35 0.35 0.05" rpy="0 ${pi/2} ${pi*3/4}"/>
-  </xacro:omni_wheel>
-
-  <!-- Wheel3 -->
-  <xacro:omni_wheel prefix="wheel2" parent="base_link">
-	  <origin xyz="-0.35 -0.35 0.05" rpy="0 ${pi/2} ${-pi*3/4}"/>
-  </xacro:omni_wheel>
-
-  <!-- Wheel2 -->
-  <xacro:omni_wheel prefix="wheel3" parent="base_link">
-	  <origin xyz="0.35 -0.35 0.05" rpy="0 ${pi/2} ${-pi/4}"/>
-  </xacro:omni_wheel>
-
+  <!-- 取り付け高さと仰角は shooter.urdf.xacro で射出口の目標高さから逆算する -->
   <xacro:shooter_v0 parent="base_link">
-	<origin xyz="0 0 0.45"/>
+	<origin xyz="0 0 ${shooter_mount_z}" rpy="0 ${-shooter_elevation} 0"/>
   </xacro:shooter_v0>
 
   <!-- Base -->
@@ -196,7 +185,7 @@
     </inertial>
   </link>
 
-  <xacro:sample_robot_simulation prefix=""/>
+  <xacro:sample_robot_simulation prefix="" camera_format="$(arg camera_format)"/>
   <xacro:sample_robot_ros2_control name="$(arg robot_name)" use_sim="$(arg use_sim)"/>
 
 </robot>

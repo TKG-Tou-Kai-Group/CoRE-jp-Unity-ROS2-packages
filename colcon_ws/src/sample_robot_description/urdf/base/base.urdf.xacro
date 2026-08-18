@@ -3,7 +3,42 @@
 
   <xacro:include filename="$(find sample_robot_description)/urdf/base/base.gazebo.xacro"/>
 
-  <xacro:macro name="base_v0" params="parent *joint_origin">
+  <!--
+    接地脚 1 個ぶん。車体を床から浮かせる球の当たり判定と、車輪の見た目を
+    base_frame_link へ直に足す。リンクもジョイントも増やさないので、
+    ソルバのコストは変わらない。
+
+    位置はオムニホイールの取り付け位置 (base_link 基準で ±0.35, ±0.35, 0.05)
+    に合わせる。base_frame_link は base_link の +0.06 なので z は -0.01。
+    半径 0.05 は車輪半径と同じで、これで車体下面の地上高 5 cm が元どおりになる。
+
+    車輪を外すと車体が 5 cm 下がって床に直付きになり、フィールドの構造物に
+    引っ掛かって走れなくなる (実測: 脚なしでは 156 N を掛けても速度 0、
+    脚ありで指令の 100%)。見た目もハウジングの STL をそのまま置いて、
+    車輪があるように見せる (回転はしない)。
+  -->
+  <xacro:macro name="base_skid" params="x y yaw">
+        <visual>
+          <origin xyz="${x} ${y} -0.01" rpy="0 ${pi/2} ${yaw}"/>
+          <geometry>
+            <mesh filename="file://$(find sample_robot_description)/meshes/STL/omni_housing_100mm.stl" />
+          </geometry>
+          <material name="gray"/>
+        </visual>
+        <collision>
+          <collision_material name="skid"/>
+          <origin xyz="${x} ${y} -0.01"/>
+          <geometry>
+            <sphere radius="0.05"/>
+          </geometry>
+        </collision>
+  </xacro:macro>
+
+  <!--
+    skids:=true で接地脚を付ける。BodyTwistDrive で走らせる構成用。
+    オムニホイールを付ける構成では false のままにすること (二重に接地する)。
+  -->
+  <xacro:macro name="base_v0" params="parent *joint_origin skids:=false">
         <joint name="base_frame_link_joint" type="fixed">
           <xacro:insert_block name="joint_origin"/>
           <parent link="${parent}"/>
@@ -23,6 +58,12 @@
                   <box size="0.6 0.6 0.02" />
                 </geometry>
           </collision>
+          <xacro:if value="${skids}">
+            <xacro:base_skid x="0.35"  y="0.35"  yaw="${pi/4}"/>
+            <xacro:base_skid x="-0.35" y="0.35"  yaw="${pi*3/4}"/>
+            <xacro:base_skid x="-0.35" y="-0.35" yaw="${-pi*3/4}"/>
+            <xacro:base_skid x="0.35"  y="-0.35" yaw="${-pi/4}"/>
+          </xacro:if>
           <inertial>
                 <origin xyz="0 0 0"/>
                 <mass value="20.0"/>

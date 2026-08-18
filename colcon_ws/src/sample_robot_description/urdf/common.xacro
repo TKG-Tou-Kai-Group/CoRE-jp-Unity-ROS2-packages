@@ -21,6 +21,15 @@
     <collision_material name="wheel_barrel">
       <friction static="1.0" dynamic="1.0" combine="maximum"/>
     </collision_material>
+    <!--
+      接地脚。オムニホイールを BodyTwistDrive (車体への直接加力) へ置き換えた
+      構成で、車体を床から浮かせるためだけに使う球。推進は加力で行うので、
+      床とは擦らせない。combine="minimum" は床の材質 (Unity 既定 0.6) に
+      関わらず 0 を効かせるため。
+    -->
+    <collision_material name="skid">
+      <friction static="0.0" dynamic="0.0" combine="minimum"/>
+    </collision_material>
     <!-- 車体・バンパ・装甲 -->
     <collision_material name="robot_body">
       <friction static="1.0" dynamic="1.0" combine="maximum"/>
