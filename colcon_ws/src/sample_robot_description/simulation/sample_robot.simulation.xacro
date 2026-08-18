@@ -9,8 +9,12 @@
 
     camera  -> /<robot>/<link>/image_raw   (sensor_msgs/Image)
                /<robot>/<link>/camera_info (sensor_msgs/CameraInfo)
-    contact -> /<robot>/<link>/contact         (std_msgs/Bool)
+    contact -> /<robot>/<link>/contact_count   (std_msgs/Int32)
+               /<robot>/<link>/contact         (std_msgs/Bool)
                /<robot>/<link>/contact/wrench  (geometry_msgs/WrenchStamped)
+
+  接触センサの後ろ 2 つは <publish_state> と <publish_wrench> を false に
+  すると止められます (既定は出す)。contact_count は常に出ます。
 
   Isaac 版はリンクの親子関係がトピック名に入り
   /<robot>/base_link/camera_link/image_raw でしたが、こちらはリンク名だけの
@@ -87,18 +91,43 @@
         </clip>
       </sensor>
 
-      <!-- 装甲板の被弾検出。hp_manager が std_msgs/Bool の立ち上がりを数える -->
+      <!--
+        装甲板の被弾検出。hp_manager が std_msgs/Int32 (contact_count) の
+        増分を数える。
+
+        Bool の立ち上がりではなくカウンタを使うのは、経路のどこで落ちても
+        次の 1 通で追いつけるため。Bool は落ちた通に立ち上がりが乗っていると
+        その被弾が永久に失われる。
+
+        update_rate はディスクの接触時間 (物理 1〜数ステップ) より必ず粗い。
+        それでも取りこぼさないのは、接触の到着をセンサ側で数えていて、
+        サンプルの合間に始まって終わった接触も残るため。ここが決めるのは
+        検出漏れではなく報告の遅れだけなので、描画フレームレートに合わせる。
+        publisher は 1 フレームに 1 通しか出さないので、これより上げても
+        通数は増えず、値が効かないまま実測 10 Hz になるだけ。
+
+        Bool とレンチは hp_manager が使わないので止める。装甲板 4 枚 x 8 機で
+        毎秒 960 通ずつ、合わせて 1920 通/秒が経路から消える。
+      -->
       <sensor name="armor1_link" type="contact">
-        <update_rate>30.0</update_rate>
+        <update_rate>10.0</update_rate>
+        <publish_state>false</publish_state>
+        <publish_wrench>false</publish_wrench>
       </sensor>
       <sensor name="armor2_link" type="contact">
-        <update_rate>30.0</update_rate>
+        <update_rate>10.0</update_rate>
+        <publish_state>false</publish_state>
+        <publish_wrench>false</publish_wrench>
       </sensor>
       <sensor name="armor3_link" type="contact">
-        <update_rate>30.0</update_rate>
+        <update_rate>10.0</update_rate>
+        <publish_state>false</publish_state>
+        <publish_wrench>false</publish_wrench>
       </sensor>
       <sensor name="armor4_link" type="contact">
-        <update_rate>30.0</update_rate>
+        <update_rate>10.0</update_rate>
+        <publish_state>false</publish_state>
+        <publish_wrench>false</publish_wrench>
       </sensor>
     </simulation>
 
