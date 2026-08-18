@@ -3,24 +3,36 @@
 
     python3 scripts/measure_hit.py --shooter sample_robot_1 --target sample_robot_2
 
-被弾は 2 つの経路で数えられる。
+装甲板ごとの被弾を数えられるのは接触センサだけで、突き合わせられる「真値」は
+無い。get_contact_events は ContactReporter がボディ単位で集計したものだが、
+装甲板は固定ジョイントの子でコライダーが親 (base_link) のボディに属するため、
+装甲板への接触も base_link に計上されてしまう。装甲板とシュータと車体の
+どれに当たったのかは、このサービスからは区別できない。
 
-  真値   get_contact_events サービス。ContactReporter が OnCollisionEnter を
-         物理ステップごとに拾って集計しているので、取りこぼしが無い
-  実運用 /<機体名>/armorN_link/contact (std_msgs/Bool) の立ち上がりを
+そこで検証はこう組む。
+
+  上限   get_contact_events で「的の機体に触れたディスクの数」を数える。
+         装甲板は機体の一部なので、機体に触れていないディスクが装甲板に
+         当たることはない。つまりこれが被弾数の上限になる
+  実運用 /<機体名>/armorN_link/contact_count (std_msgs/Int32) の増分を
          hp_manager が数えて HP を 10 ずつ減らす
 
-この 2 つを突き合わせる。Bool を出す ContactSensor は「publish 時点で接触して
-いるか」を出すだけでラッチしないので、接触が publish 間隔より短いと落ちる。
-ディスクは 32 m/s で厚さ 1 cm の装甲板を 0.3 ms で通過する一方、センサの
-publish はフレームレート (既定 10 FPS) が上限なので、取りこぼしが出やすい。
+見るのは 2 つ。センサの増分が上限を超えていないか (超えていたら同じディスクの
+跳ね返りを重複して数えている)、そして増分と HP の減少が一致しているか。
+
+この 2 つを突き合わせる。かつて実運用側は Bool の立ち上がりを見ており、
+ContactSensor が「publish 時点で接触しているか」しか出さずラッチもしないため、
+publish 間隔より短い接触は落ちていた。ディスクは 32 m/s で厚さ 1 cm の装甲板を
+0.3 ms で通過する一方、publish はフレームレート (既定 10 FPS) が上限なので、
+取りこぼして当然だった。センサ側で到着を数えるようにしたので、この検証は
+その回数が真値と一致するかを見ることになる。
 
 射手と的は set_entity_state で配置する。競技の開始位置は互いに斜めを向いていて
 当たらないため。
 
 的は「角」を射手へ向ける。装甲板は機体の四隅 (体軸 ±0.35, ±0.35) に 45 度で
 付いており、正面には無い。正対させると弾は相手のシュータ本体や車体に当たり、
-装甲板には当たらない (実測: 正対で 4 m、装甲板への接触は真値でも 0 回)。
+装甲板には当たらない (実測: 正対で 4 m、装甲板の接触センサは 0 回)。
 
 射出口の高さは shooter_barel_link (base_link の +0.54) ではなく射出輪
 (shooter_base_link の +0.055 = base_link の +0.505)。装甲板は base_link の
@@ -30,6 +42,7 @@ publish はフレームレート (既定 10 FPS) が上限なので、取りこ�
 
 import argparse
 import math
+import re
 import threading
 import time
 
@@ -37,7 +50,7 @@ import rclpy
 from rclpy.node import Node
 
 from geometry_msgs.msg import PoseStamped
-from std_msgs.msg import Bool, Int32, Float64MultiArray
+from std_msgs.msg import Int32, Float64MultiArray
 from simulation_interfaces.srv import GetEntitiesStates, SetEntityState
 from simulation_extra_interfaces.srv import GetContactEvents
 
@@ -47,6 +60,7 @@ WHEEL_VELOCITY = 500.0
 LOADER_FEED = 1.0
 LOADER_IDLE = -1.0
 HP_PER_HIT = 10          # hp_manager の減少幅
+DISC_NAME = re.compile(r'.*_flying_disc_[0-9]+$')
 RESULT_OK_VALUES = (0, 1)
 
 
@@ -90,19 +104,19 @@ class HitMeasure(Node):
             s.create_subscription(
                 PoseStamped, f'/{name}/ground_truth',
                 lambda m, n=name: s.on_pose(n, m), 10)
-        # 装甲板の接触トピックを直接見る。hp_manager と同じ立ち上がりを数えつつ、
-        # 「一度でも True になったか」も別に持つ。HP が減らないとき、
-        # センサが発火していないのか hp_manager 側の問題なのかを切り分けるため。
+        # 装甲板の接触トピックを直接見る。hp_manager と同じ差分を数えつつ、
+        # 受信した通数も別に持つ。HP が減らないとき、センサが発火していないのか
+        # hp_manager 側の問題なのかを切り分けるため。
         s.armor_rise = {}
-        s.armor_true = {}
+        s.armor_msgs = {}
         s._armor_prev = {}
         for i in range(1, 5):
             link = f'armor{i}_link'
             s.armor_rise[link] = 0
-            s.armor_true[link] = 0
-            s._armor_prev[link] = False
+            s.armor_msgs[link] = 0
+            s._armor_prev[link] = None
             s.create_subscription(
-                Bool, f'/{target}/{link}/contact',
+                Int32, f'/{target}/{link}/contact_count',
                 lambda m, l=link: s.on_armor(l, m), 10)
         s.cmd = s.create_publisher(
             Float64MultiArray, f'/{shooter}/velocity_controller/commands', 10)
@@ -119,11 +133,13 @@ class HitMeasure(Node):
 
     def on_armor(s, link, msg):
         with s.lock:
-            if msg.data:
-                s.armor_true[link] += 1
-                if not s._armor_prev[link]:
-                    s.armor_rise[link] += 1
+            s.armor_msgs[link] += 1
+            prev = s._armor_prev[link]
             s._armor_prev[link] = msg.data
+            # 最初の 1 通は基準。減っていたらセンサが作り直された合図なので
+            # 被弾として数えない (hp_manager と同じ扱い)。
+            if prev is not None and msg.data > prev:
+                s.armor_rise[link] += msg.data - prev
 
     def on_hp(s, name, msg):
         with s.lock:
@@ -202,8 +218,13 @@ class HitMeasure(Node):
             out[c.link][c.other] = out[c.link].get(c.other, 0) + c.count
         return out
 
-    def armor_contacts(s, entity, clear=False, timeout=20.0):
-        """装甲板が受けた接触の真値。{link: (回数, 相手の集合)}"""
+    def disc_contacts(s, entity, clear=False, timeout=20.0):
+        """その機体に触れたディスク。{ディスク名: 接触開始の回数}
+
+        リンク単位では装甲板と車体を区別できない (ContactReporter はボディ
+        単位で、装甲板のコライダーは base_link のボディに属する) ので、
+        相手のディスク単位でまとめる。被弾数の上限を出すのに使う。
+        """
         req = GetContactEvents.Request()
         req.entity = entity
         req.clear = clear
@@ -215,10 +236,9 @@ class HitMeasure(Node):
             return None
         out = {}
         for c in res.contacts:
-            if not c.link.startswith('armor'):
+            if not DISC_NAME.match(c.other):
                 continue
-            n, others = out.get(c.link, (0, set()))
-            out[c.link] = (n + c.count, others | {c.other})
+            out[c.other] = out.get(c.other, 0) + c.count
         return out
 
 
@@ -311,7 +331,7 @@ def main():
         time.sleep(args.retract)
     time.sleep(args.settle)
 
-    truth = node.armor_contacts(args.target) or {}
+    reached = node.disc_contacts(args.target) or {}
     every = node.all_contacts(args.target) or {}
     discs_after = node.discs(args.shooter) or {}
     fresh = set(discs_after) - set(discs_before)
@@ -342,20 +362,19 @@ def main():
 
     with node.lock:
         rise = dict(node.armor_rise)
-        true_n = dict(node.armor_true)
+        msgs_n = dict(node.armor_msgs)
     print('  装甲板の接触トピック (hp_manager が見ているもの):')
     for link in sorted(rise):
-        print(f'      {link}: True を {true_n[link]} 回受信 / '
-              f'立ち上がり {rise[link]} 回')
+        print(f'      {link}: {msgs_n[link]} 通受信 / '
+              f'カウンタの増分 {rise[link]} 回')
     total_rise = sum(rise.values())
 
-    truth_total = sum(n for n, _ in truth.values())
     print(f'射手 {args.shooter} -> 的 {args.target} / 距離 {args.range} m / '
           f'{args.shots} ストローク')
-    print(f'  真値の被弾数 (get_contact_events) {truth_total}')
-    for link in sorted(truth):
-        n, others = truth[link]
-        print(f'      {link}: {n} 回  相手={sorted(others)}')
+    print(f'  的に触れたディスク {len(reached)} 枚 '
+          f'(装甲板に当たり得た上限。リンク単位では分けられない)')
+    for disc in sorted(reached):
+        print(f'      {disc}: 接触開始 {reached[disc]} 回')
     if hp_before is None or hp_after is None:
         print('  HP        取得できない (robot_hp が来ていない)')
         rclpy.shutdown()
@@ -364,9 +383,13 @@ def main():
     print(f'  HP        {hp_before} -> {hp_after}  '
           f'= 判定された被弾 {detected} 発')
     if total_rise > 0:
-        print(f'  センサの立ち上がり {total_rise} 回 -> HP から見た被弾 {detected} 発')
-        if detected < total_rise:
-            print(f'  !! hp_manager が {total_rise - detected} 回取りこぼしている')
+        print(f'  センサの増分 {total_rise} 回 -> HP から見た被弾 {detected} 発')
+        if detected != total_rise:
+            print(f'  !! hp_manager の数え方がずれている '
+                  f'(増分 {total_rise} に対し {detected} 発)')
+        if total_rise > len(reached):
+            print(f'  !! 上限 {len(reached)} 枚を超えている。'
+                  f'同じディスクの跳ね返りを重複して数えている')
     else:
         print('  装甲板のセンサが一度も発火していない。'
               '当たっていないか、センサが拾えていないかのどちらか')
