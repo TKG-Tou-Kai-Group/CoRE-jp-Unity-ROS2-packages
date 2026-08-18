@@ -234,9 +234,46 @@ Isaac 版と違い、Isaac Sim のイメージも NGC のアカウントも要�
 
 センサのトピック名も変わっています。Isaac はリンクの親子関係がトピック名に入り
 `/<ロボット名>/base_link/camera_link/image_raw` でしたが、Unity 版は
-`/<ロボット名>/<リンク名>/image_raw` の 1 階層です。装甲板の接触も
-`/<ロボット名>/armor1_link/contact`（`std_msgs/Bool`）になります。
+`/<ロボット名>/<リンク名>/...` の 1 階層です。
 `tools/*.html` と launch の remap はこの新しい名前に合わせてあります。
+
+| 中身 | トピック | 型 |
+|---|---|---|
+| 一人称カメラ | `/<ロボット名>/camera_link/image_raw/compressed` | `sensor_msgs/CompressedImage` |
+| 俯瞰カメラ | `/<ロボット名>/top_view_camera_link/image_raw/compressed` | `sensor_msgs/CompressedImage` |
+| 装甲板の被弾 | `/<ロボット名>/armorN_link/contact_count` | `std_msgs/Int32` |
+
+被弾は真偽値ではなく**接触が始まった回数の累積**です。購読側は 2 回の受信の
+差を取ります。立ち上がりを数える方式だと、途中でメッセージが 1 通落ちただけで
+その被弾が永久に失われるためです。減っていたらリセットか再スポーンの合図なので、
+差が負のときは被弾として数えないでください。
+
+### カメラの形式
+
+シミュレータは既定で JPEG を出します。生画像が要る場合は環境変数で切り替えます。
+
+```bash
+CORE_CAMERA_FORMAT=raw ros2 launch sample_robot_sim sample_robot_1_spawn_for_core.launch.py
+```
+
+`raw` にすると `/<ロボット名>/camera_link/image_raw`（`sensor_msgs/Image`）に
+変わります。`ros2 launch --show-args` には出ません。URDF を組み立てる xacro が
+launch の実行前に走るため、launch 引数にできないからです。
+
+**通常は既定のままで構いません。** JPEG のほうが速いためです。Unity から
+ros_tcp_endpoint への経路は TCP 1 本で、生画像を 8 機ぶん（一人称と俯瞰で 16 本）
+流すと溢れます。溢れ方は 1 フレーム内の publish 順、つまり機体の生成順に効くので、
+番号の大きい機体ほど映像が落ちます。
+
+8 台・960×540 での実測:
+
+| 形式 | 全機の FPS | 送信キューの廃棄 |
+|---|---|---|
+| jpeg | 10.10（8 機とも） | 23 件 |
+| raw | 8.80 〜 10.45 | 16,251 件 |
+
+符号化はシミュレータ側のワーカースレッドで走るので、物理演算とは競合しません。
+そのぶん映像は 1 周期（100 ms）遅れて出ますが、タイムスタンプは撮影時刻のままです。
 
 ### ステージの変換について
 
