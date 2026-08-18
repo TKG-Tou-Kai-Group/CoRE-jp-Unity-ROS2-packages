@@ -28,8 +28,9 @@ from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess, TimerAction
-from launch.conditions import IfCondition
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.conditions import IfCondition, UnlessCondition
+from launch.substitutions import (
+    LaunchConfiguration, PathJoinSubstitution, PythonExpression)
 
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
@@ -59,6 +60,7 @@ def generate_launch_description():
         DeclareLaunchArgument('launch_endpoint', default_value='true'),
         DeclareLaunchArgument('world_path', default_value=default_world_path),
         DeclareLaunchArgument('startup_delay', default_value='15.0'),
+        DeclareLaunchArgument('video_input', default_value='jpeg'),
     ]
 
     # シミュレータの起動時設定 (物理レートなど)。既定は 50 Hz だが、オムニホイールの
@@ -130,11 +132,25 @@ def generate_launch_description():
     # rosbridge 経由の JPEG (base64) だと 1 系統 2.8 Mbps、8 系統で 23 Mbps に
     # なる。H.264 なら同じ画をおよそ 1/3 で送れる。視聴者が居ない系統は
     # エンコードしないので、誰も見ていない機体のぶんは CPU を使わない。
+    # video_input:=raw にすると、JPEG を経由せず生画像を受け取る。
+    # 両端 (カメラ配信の符号化と、ここでの復号) を省ける。
+    # ロボット側も camera_output_format:=raw で起動すること。
     operator_stream = Node(
         package='core_sim_utils',
         executable='operator_stream',
         name='operator_stream',
         output='screen',
+        condition=UnlessCondition(
+            PythonExpression(["'", LaunchConfiguration('video_input'), "' == 'raw'"])),
+    )
+    operator_stream_raw = Node(
+        package='core_sim_utils',
+        executable='operator_stream',
+        name='operator_stream',
+        arguments=['--raw'],
+        output='screen',
+        condition=IfCondition(
+            PythonExpression(["'", LaunchConfiguration('video_input'), "' == 'raw'"])),
     )
 
     game_manager = Node(
@@ -172,6 +188,7 @@ def generate_launch_description():
         load_world,
         flying_disc_feeder,
         operator_stream,
+        operator_stream_raw,
         game_manager,
         rosbridge_websocket,
     ])

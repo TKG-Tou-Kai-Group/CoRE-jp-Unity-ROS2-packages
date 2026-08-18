@@ -22,6 +22,8 @@ import os
 from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
 from launch.substitutions import PathJoinSubstitution
 
 from launch_ros.actions import Node
@@ -165,15 +167,21 @@ def generate_launch_description():
 
     # シミュレータのカメラトピックは /<エンティティ名>/<リンク名>/image_raw。
     # Isaac 版の /<robot>/base_link/camera_link/image_raw から 1 階層減っている。
+    # 映像の出し方。operator_stream が H.264 化するときの入力になる。
+    #   jpeg … CompressedImage だけ出す (既定)
+    #   raw  … Image だけ出す。JPEG の符号化と復号を両端で省ける
+    #   both … 両方
     core_jp_camera_publisher = Node(
         package='core_jp_camera_publisher',
         name='publisher_node',
         executable='publisher_node',
         namespace=ROBOT_NAME,
+        parameters=[{'output_format': LaunchConfiguration('camera_output_format')}],
         remappings=[
             ('input_image_topic', '/' + ROBOT_NAME + '/camera_link/image_raw'),
             ('top_view_image_topic', '/' + ROBOT_NAME + '/top_view_camera_link/image_raw'),
             ('output_image_topic', '/' + ROBOT_NAME + '/camera_link/image_compressed'),
+            ('output_image_raw_topic', '/' + ROBOT_NAME + '/camera_link/image_raw_overlay'),
             ('game_status', '/game_status'),
             ('countdown', '/countdown'),
             ('robot1_hp', '/sample_robot_1/robot_hp'),
@@ -206,6 +214,7 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
+        DeclareLaunchArgument('camera_output_format', default_value='jpeg'),
         node_robot_state_publisher,
         spawn_robot,
         control_node,

@@ -63,13 +63,22 @@
         <command_timeout>0.5</command_timeout>
       </sensor>
 
-      <!-- 操縦用の一人称カメラ (720p) -->
+      <!--
+        操縦用の一人称カメラ。
+
+        Unity から ros_tcp_endpoint への経路は TCP 1 本 + Python 1 スレッドで、
+        そこを生画像 (rgb8) が渡る。720p だと 1 枚 2.76 MB、8 機 x 一人称/俯瞰の
+        16 本で 442 MB/s になり、送りきれないぶんが送信キューから捨てられる。
+        捨てられ方は 1 フレーム内の publish 順、すなわち機体の生成順に効くので、
+        8 台構成では後ろの機体ほど落ちる (実測で 8 号機が 1.35 FPS)。
+        540p なら 8 機すべてが 10 FPS を保てる (実測で最低 9.60 FPS)。
+      -->
       <sensor name="camera_link" type="camera">
         <update_rate>10.0</update_rate>
         <horizontal_fov>1.3962634</horizontal_fov>
         <image>
-          <width>1280</width>
-          <height>720</height>
+          <width>960</width>
+          <height>540</height>
         </image>
         <clip>
           <near>0.02</near>
