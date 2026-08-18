@@ -22,13 +22,28 @@ STATUS_ROBOT4_WIN = 6
 class ImageOverlayPublisher(Node):
     def __init__(self):
         super().__init__('image_overlay_publisher')
+        # シミュレータから受け取る形式。生画像は 720p で 1 枚 2.76 MB あり、
+        # Unity から ros_tcp_endpoint への 1 本の TCP がこれで詰まる。jpeg なら
+        # シミュレータ側で符号化してから渡ってくるので、その経路が空く。
+        # 既定は raw なので、既存の構成は何も変わらない。
+        self.declare_parameter('input_format', 'raw')
+        self._input_format = (
+            self.get_parameter('input_format').get_parameter_value().string_value or 'raw'
+        ).lower()
+        if self._input_format not in ('raw', 'jpeg'):
+            self.get_logger().warn(
+                f"input_format '{self._input_format}' は不明。raw として扱う")
+            self._input_format = 'raw'
+        input_type = CompressedImage if self._input_format == 'jpeg' else Image
+        self.get_logger().info(f'input_format = {self._input_format}')
+
         self.subscription = self.create_subscription(
-            Image,
+            input_type,
             'input_image_topic',
             self.image_callback,
             10)
         self.top_view_subscription = self.create_subscription(
-            Image,
+            input_type,
             'top_view_image_topic',
             self.top_view_image_callback,
             10)
@@ -139,8 +154,18 @@ class ImageOverlayPublisher(Node):
             self._font_cache[size] = ImageFont.truetype(self._font_path, size)
         return self._font_cache[size]
 
+    def to_bgr(self, msg):
+        """入力形式によらず BGR の ndarray にする。"""
+        if self._input_format == 'jpeg':
+            # CompressedImage は JPEG のバイト列そのもの。cv2 が BGR で返す。
+            return cv2.imdecode(np.frombuffer(msg.data, np.uint8), cv2.IMREAD_COLOR)
+        return self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+
     def image_callback(self, msg):
-        cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+        cv_image = self.to_bgr(msg)
+        if cv_image is None:
+            self.get_logger().warn('画像を復号できなかった')
+            return
 
         # 画像の高さと幅を取得
         height, width, _ = cv_image.shape
@@ -221,7 +246,7 @@ class ImageOverlayPublisher(Node):
         return background
 
     def top_view_image_callback(self, msg):
-        self.top_view_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+        self.top_view_image = self.to_bgr(msg)
 
     def joy_callback(self, joy_msg):
         # ボタン4の状態を更新

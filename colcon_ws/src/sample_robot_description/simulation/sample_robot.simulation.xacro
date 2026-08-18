@@ -9,6 +9,10 @@
 
     camera  -> /<robot>/<link>/image_raw   (sensor_msgs/Image)
                /<robot>/<link>/camera_info (sensor_msgs/CameraInfo)
+    camera (format=jpeg のとき)
+            -> /<robot>/<link>/image_raw/compressed (sensor_msgs/CompressedImage)
+               生画像の代わりに出る。720p の生画像は 1 枚 2.76 MB あり、
+               Unity から ros_tcp_endpoint への 1 本の TCP を詰まらせる
     contact -> /<robot>/<link>/contact_count   (std_msgs/Int32)
                /<robot>/<link>/contact         (std_msgs/Bool)
                /<robot>/<link>/contact/wrench  (geometry_msgs/WrenchStamped)
@@ -22,7 +26,7 @@
 -->
 <robot xmlns:xacro="http://ros.org/wiki/xacro">
 
-  <xacro:macro name="sample_robot_simulation" params="prefix">
+  <xacro:macro name="sample_robot_simulation" params="prefix camera_format:=raw">
 
     <!-- =============== Unity Simulator =============== -->
     <simulation>
@@ -79,6 +83,8 @@
         <image>
           <width>960</width>
           <height>540</height>
+          <format>${camera_format}</format>
+          <quality>75</quality>
         </image>
         <clip>
           <near>0.02</near>
@@ -93,6 +99,8 @@
         <image>
           <width>180</width>
           <height>180</height>
+          <format>${camera_format}</format>
+          <quality>75</quality>
         </image>
         <clip>
           <near>5.0</near>

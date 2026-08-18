@@ -55,6 +55,24 @@ def wrap_yaml_text(input_path: str, robot_name: str, output_path: str) -> None:
                 fout.write(f"  {line}")
 
 
+# シミュレータから受け取るカメラの形式。生画像は 540p で 1 枚 1.56 MB あり、
+# 8 機ぶん x 一人称/俯瞰の 16 本が Unity から ros_tcp_endpoint への 1 本の
+# TCP に集まって溢れる。jpeg はシミュレータ側でワーカースレッドが符号化して
+# から渡すので、この経路が空く。
+#
+# 実測 (8 台, 960x540): jpeg は全機 10.10 FPS で送信キューの廃棄 23 件。
+# raw は最低 8.80 FPS で廃棄 16251 件。jpeg のほうが速く、経路も空く。
+# raw を残してあるのは、生画像が要る用途 (画像処理の入力など) のため。
+#
+# LaunchConfiguration ではなく環境変数なのは、URDF を組み立てる xacro が
+# launch の実行前に走るため。置換オブジェクトのままでは xacro に渡せない。
+# ros2 launch --show-args には出ないので、README に書いてある。
+CAMERA_FORMAT = os.environ.get('CORE_CAMERA_FORMAT', 'jpeg').lower()
+if CAMERA_FORMAT not in ('raw', 'jpeg'):
+    CAMERA_FORMAT = 'raw'
+CAMERA_SUFFIX = '/compressed' if CAMERA_FORMAT == 'jpeg' else ''
+
+
 def generate_launch_description():
     sample_robot_description_path = get_package_share_directory('sample_robot_description')
 
@@ -62,7 +80,8 @@ def generate_launch_description():
     sample_robot_xacro_file = os.path.join(
         sample_robot_description_path, 'robots', ROBOT_NAME + '.urdf.xacro')
     sample_robot_urdf_path = os.path.join('/tmp', ROBOT_NAME + '.urdf')
-    sample_robot_doc = xacro.process_file(sample_robot_xacro_file, mappings={'use_sim': 'true'})
+    sample_robot_doc = xacro.process_file(sample_robot_xacro_file, mappings={'use_sim': 'true',
+                  'camera_format': CAMERA_FORMAT})
     sample_robot_desc = sample_robot_doc.toprettyxml(indent='  ')
     with open(sample_robot_urdf_path, 'w') as f:
         f.write(sample_robot_desc)
@@ -176,10 +195,11 @@ def generate_launch_description():
         name='publisher_node',
         executable='publisher_node',
         namespace=ROBOT_NAME,
-        parameters=[{'output_format': LaunchConfiguration('camera_output_format')}],
+        parameters=[{'output_format': LaunchConfiguration('camera_output_format'),
+                     'input_format': CAMERA_FORMAT}],
         remappings=[
-            ('input_image_topic', '/' + ROBOT_NAME + '/camera_link/image_raw'),
-            ('top_view_image_topic', '/' + ROBOT_NAME + '/top_view_camera_link/image_raw'),
+            ('input_image_topic', '/' + ROBOT_NAME + '/camera_link/image_raw' + CAMERA_SUFFIX),
+            ('top_view_image_topic', '/' + ROBOT_NAME + '/top_view_camera_link/image_raw' + CAMERA_SUFFIX),
             ('output_image_topic', '/' + ROBOT_NAME + '/camera_link/image_compressed'),
             ('output_image_raw_topic', '/' + ROBOT_NAME + '/camera_link/image_raw_overlay'),
             ('game_status', '/game_status'),

@@ -2,6 +2,8 @@
 <robot name="sample_robot" xmlns:xacro="http://ros.org/wiki/xacro">
   <xacro:arg name="prefix" default="" />
   <xacro:arg name="use_sim" default="false" />
+  <!-- raw か jpeg。台数を積む構成では jpeg で経路の詰まりを避ける -->
+  <xacro:arg name="camera_format" default="raw" />
   
   <xacro:arg name="robot_name" default="sample_robot"/>
 
@@ -153,7 +155,7 @@
     </inertial>
   </link>
 
-  <xacro:sample_robot_simulation prefix=""/>
+  <xacro:sample_robot_simulation prefix="" camera_format="$(arg camera_format)"/>
   <xacro:sample_robot_ros2_control name="$(arg robot_name)" use_sim="$(arg use_sim)"/>
 
 </robot>
