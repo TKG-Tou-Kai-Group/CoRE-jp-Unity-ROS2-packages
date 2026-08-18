@@ -198,7 +198,10 @@ class Streamer(Node):
         self.jpeg_frames = 0
         self.decode_s = 0.0
 
-        suffix = 'image_raw' if raw else 'image_compressed'
+        # 生画像は core_jp_camera_publisher が output_format:=raw|both で出す
+        # オーバレイ済みのもの。シミュレータが出す素のカメラ画像
+        # (/<機体>/camera_link/image_raw) とは別トピックにしてある。
+        suffix = 'image_raw_overlay' if raw else 'image_compressed'
         template = topic_template or ('/{robot}/camera_link/' + suffix)
         self.streams = {}
         for i, robot in enumerate(robots):
