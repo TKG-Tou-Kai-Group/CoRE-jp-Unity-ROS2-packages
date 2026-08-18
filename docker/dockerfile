@@ -12,7 +12,7 @@ ARG UBUNTU_CODENAME=noble
 FROM ros:${ROS_DISTRO_ARG}-ros-base-${UBUNTU_CODENAME}
 
 # シミュレータのバージョン。scripts/run_simulator.sh の展開先と揃えること。
-ARG SIMULATOR_VERSION=v1.1.0
+ARG SIMULATOR_VERSION=v1.2.0
 
 # Arguments
 ARG USER=core
