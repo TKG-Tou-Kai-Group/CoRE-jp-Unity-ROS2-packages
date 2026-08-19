@@ -28,8 +28,11 @@ ros2_control からのコマンドを `/<ロボット名>/joint_command` とし�
 1. GPU（無くても動きますが、カメラのレンダリングがソフトウェア描画になり重くなります）
 
 Isaac 版と違い、Isaac Sim のイメージも NGC のアカウントも要りません。
-シミュレータは Docker イメージのビルド時に GitHub Releases から取得します
-（既定は **v1.2.2**）。
+シミュレータは Docker イメージのビルド時に GitHub Releases から取得します。
+取得するバージョンは
+[config/simulator_version.txt](colcon_ws/src/sample_robot_sim/config/simulator_version.txt)
+の 1 か所で決めており、`build_docker_image.sh` と
+`bring_up_core_stage.launch.py` の両方がここを読みます。
 
 > **注意**: **v1.2.1 以降が必要**です。それ以前のバージョンでは次のように動きません。
 >
@@ -39,7 +42,7 @@ Isaac 版と違い、Isaac Sim のイメージも NGC のアカウントも要�
 > - **v1.2.0**: フィールドの広い範囲に見えない当たり判定ができ、機体が外周付近から
 >   中央へ進入できません。カメラも指定した更新レートの 1/4 でしか絵を更新しません
 >   (トピックの publish 頻度は出るので `ros2 topic hz` では気づけません)。
->   **v1.2.2 を使ってください**
+>   **v1.2.1 以降を使ってください**
 > - **v1.1.0 以前**: カメラの `<format>jpeg</format>` を解釈しないため生画像を出し、
 >   映像が 1 枚も届きません。装甲板の `contact_count` も出ないので被弾判定が効きません
 > - **v1.0.5 以前**: 上に加えて `body_twist_drive` が無く、`cmd_vel` が無視されて

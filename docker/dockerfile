@@ -12,7 +12,11 @@ ARG UBUNTU_CODENAME=noble
 FROM ros:${ROS_DISTRO_ARG}-ros-base-${UBUNTU_CODENAME}
 
 # シミュレータのバージョン。scripts/run_simulator.sh の展開先と揃えること。
-ARG SIMULATOR_VERSION=v1.2.2
+# 使うシミュレータのバージョン。定義は
+# colcon_ws/src/sample_robot_sim/config/simulator_version.txt にあり、
+# build_docker_image.sh がそれを読んで --build-arg で渡す。
+# 既定値は置かない。ここに書くと定義が 2 か所になり、片方だけ古くなる。
+ARG SIMULATOR_VERSION
 
 # Arguments
 ARG USER=core
@@ -88,6 +92,12 @@ RUN ln -s /usr/lib/x86_64-linux-gnu/libdl.so.2 /usr/lib/x86_64-linux-gnu/libdl.s
 USER ${USER}
 
 # シミュレータ本体。zip はバージョン名のディレクトリに展開される。
+RUN test -n "${SIMULATOR_VERSION}" || { \
+  echo "SIMULATOR_VERSION が空です。docker build を直接叩くときは" >&2; \
+  echo "  --build-arg SIMULATOR_VERSION=\$(grep -v '^#' ../colcon_ws/src/sample_robot_sim/config/simulator_version.txt | head -1)" >&2; \
+  echo "を付けるか、docker/build_docker_image.sh を使ってください。" >&2; \
+  false; }
+
 RUN cd /home/${USER} && \
   wget -q https://github.com/REACT-ROBOT/Unity_ROS2_Robot_Simulator/releases/download/${SIMULATOR_VERSION}/Unity_ROS2_Robot_Simulator_${SIMULATOR_VERSION}_Linux_amd64.zip && \
   unzip -q Unity_ROS2_Robot_Simulator_${SIMULATOR_VERSION}_Linux_amd64.zip && \

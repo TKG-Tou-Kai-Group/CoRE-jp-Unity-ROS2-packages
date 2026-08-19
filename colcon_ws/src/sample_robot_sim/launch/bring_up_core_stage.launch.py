@@ -37,9 +37,28 @@ from launch_ros.substitutions import FindPackageShare
 
 import xacro
 
+def read_simulator_version():
+    """使うシミュレータのバージョンを config/simulator_version.txt から読む。
+
+    バージョンをここと docker/dockerfile と README に別々に書いていたころは、
+    リリースのたびにどれかが取り残されていた (v1.2.0 のときここだけ v1.0.5 の
+    ままで、simulator_path を明示しない限り起動に失敗した)。定義は 1 か所に置く。
+    """
+    path = os.path.join(
+        get_package_share_directory('sample_robot_sim'),
+        'config', 'simulator_version.txt')
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith('#'):
+                return line
+    raise RuntimeError(f'{path} にバージョンが書かれていない')
+
+
+SIMULATOR_VERSION = read_simulator_version()
 DEFAULT_SIMULATOR_PATH = os.path.join(
     os.path.expanduser('~'),
-    'Unity_ROS2_Robot_Simulator_v1.2.2_Linux_amd64',
+    f'Unity_ROS2_Robot_Simulator_{SIMULATOR_VERSION}_Linux_amd64',
     'Unity_ROS2_Robot_Simulator.x86_64')
 
 

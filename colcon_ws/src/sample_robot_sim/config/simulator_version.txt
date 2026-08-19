@@ -1,0 +1,13 @@
+# 使用する Unity_ROS2_Robot_Simulator のバージョン。ここが唯一の定義。
+#
+# 参照しているもの:
+#   docker/build_docker_image.sh          --build-arg SIMULATOR_VERSION に渡す
+#   launch/bring_up_core_stage.launch.py  simulator_path の既定値を組み立てる
+#
+# 以前はこの 2 つと README に別々に書いてあり、リリースのたびに取りこぼしていた
+# (v1.2.0 のとき launch の既定パスだけ v1.0.5 のまま残り、simulator_path を
+# 明示しない限り起動に失敗する状態になっていた)。
+#
+# 空行と # で始まる行は読み飛ばされる。最初の中身がある行をバージョンとして使う。
+# GitHub Releases のタグと同じ書き方にすること (先頭に v を付ける)。
+v1.2.2
