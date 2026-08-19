@@ -1,7 +1,7 @@
 # CoRE-jp-Unity-ROS2-packages
 
 - サンプルロボット操縦デモ
-  ![ros2_control_demo](figs/core_sim_multi_robot_test.gif)
+  ![ros2_control_demo](figs/core-jp-unity-test.webp)
 
 このリポジトリは、[Unity_ROS2_Robot_Simulator](https://github.com/REACT-ROBOT/Unity_ROS2_Robot_Simulator) 上で
 CoRE の競技環境を動かすための ROS 2 パッケージをまとめたものです。
