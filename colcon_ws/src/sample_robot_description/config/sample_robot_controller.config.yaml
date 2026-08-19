@@ -4,18 +4,24 @@
       axis_linear:
         x: 1
         y: 0
+      # Speed 表示 1.0 (既定, scaleFactor 0.5) でスティック全倒しのとき
+      # 通常 0.5 m/s / Turbo 1.0 m/s になる値。Turbo の 1.0 が
+      # sample_robot.simulation.xacro の max_linear_velocity と一致するので、
+      # Speed を上げても 1.0 m/s を超えることはない。
+      # 符号はスティックの向きを合わせるためのもの。
+      # 旋回も同じ組み立てで、既定で通常 0.75 rad/s / Turbo 1.5 rad/s。
       scale_linear:
-        x: -1.8
-        y: -1.8
+        x: -1.0
+        y: -1.0
       scale_linear_turbo:
-        x: -3.6
-        y: -3.6
+        x: -2.0
+        y: -2.0
       axis_angular:
         yaw: 2
       scale_angular:
-        yaw: -3.0
+        yaw: -1.5
       scale_angular_turbo:
-        yaw: -6.0
+        yaw: -3.0
       require_enable_button: false
       shoot_button: 5
       enable_turbo_button: 8

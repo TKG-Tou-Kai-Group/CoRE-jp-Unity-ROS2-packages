@@ -208,12 +208,24 @@ Isaac 版と違い、Isaac Sim のイメージも NGC のアカウントも要�
 
 速度・加速度の上限は
 [simulation/sample_robot.simulation.xacro](colcon_ws/src/sample_robot_description/simulation/sample_robot.simulation.xacro)
-の `<sensor type="body_twist_drive">` にあります。値は以前の `omni_wheel_controller` の
-設定をそのまま引き継いでいます (1.0 m/s / 0.4 m/s²、1.5 rad/s / 0.8 rad/s²)。
+の `<sensor type="body_twist_drive">` にあります (1.0 m/s / 0.4 m/s²、1.5 rad/s / 0.8 rad/s²)。
+加速度と角速度は以前の `omni_wheel_controller` の設定をそのまま引き継いでいます。
+
+走行速度は上限と teleop 側のスケール
+([config/sample_robot_controller.config.yaml](colcon_ws/src/sample_robot_description/config/sample_robot_controller.config.yaml))
+の組み合わせで決まります。ブラウザの Speed 調整が既定 (表示 1.0) のとき、
+スティック全倒しで次のようになります。
+
+| | 通常 | Turbo |
+| --- | --- | --- |
+| 直進 | 0.5 m/s | 1.0 m/s |
+| 旋回 | 0.75 rad/s | 1.5 rad/s |
+
+Speed を上げると通常時も速くなりますが、`max_linear_velocity` の 1.0 m/s と
+`max_angular_velocity` の 1.5 rad/s で頭打ちになります。
 
 > **注意**: 以前は車輪が滑って指令の 54% しか出ていませんでした。同じ指令値でも
-> 実際の速度は約 1.85 倍になるので、競技の間合いが変わります。以前の実効速度に
-> 合わせたい場合は `max_linear_velocity` を 0.54 前後まで下げてください。
+> 実際の速度は約 1.85 倍になるので、競技の間合いが変わります。
 
 車体を床から浮かせるために、車輪と同じ位置・同じ半径 (0.05 m) の摩擦 0 の球を
 `base_frame_link` の `<collision>` として 4 個付けています

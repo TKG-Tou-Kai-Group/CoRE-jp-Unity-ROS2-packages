@@ -559,10 +559,15 @@
 
   function updateFromKeyboard() {
     const kb = config.keyboard;
-    virtualGamepad.axes[0] = (heldKeys.has(kb.leftStickRight) ? 1 : 0) - (heldKeys.has(kb.leftStickLeft) ? 1 : 0);
-    virtualGamepad.axes[1] = (heldKeys.has(kb.leftStickDown)  ? 1 : 0) - (heldKeys.has(kb.leftStickUp)   ? 1 : 0);
-    virtualGamepad.axes[2] = (heldKeys.has(kb.rightStickRight)? 1 : 0) - (heldKeys.has(kb.rightStickLeft) ? 1 : 0);
-    virtualGamepad.axes[3] = (heldKeys.has(kb.rightStickDown) ? 1 : 0) - (heldKeys.has(kb.rightStickUp)   ? 1 : 0);
+    // Scaled by scaleFactor the same way the gamepad axes are, so the Speed
+    // readout applies to the keyboard too. It used to send a raw +-1, which
+    // meant the speed control did nothing at all here.
+    const axis = (plus, minus) =>
+      ((heldKeys.has(plus) ? 1 : 0) - (heldKeys.has(minus) ? 1 : 0)) * scaleFactor;
+    virtualGamepad.axes[0] = axis(kb.leftStickRight, kb.leftStickLeft);
+    virtualGamepad.axes[1] = axis(kb.leftStickDown,  kb.leftStickUp);
+    virtualGamepad.axes[2] = axis(kb.rightStickRight, kb.rightStickLeft);
+    virtualGamepad.axes[3] = axis(kb.rightStickDown, kb.rightStickUp);
 
     virtualGamepad.buttons[4] = heldKeys.has(kb.topView) ? 1 : 0;  // 俯瞰画像ON/OFF
     virtualGamepad.buttons[5] = heldKeys.has(kb.shoot) ? 1 : 0;   // 射撃 (shoot_button: 5)
@@ -572,6 +577,17 @@
     publishJoy(virtualGamepad.axes, virtualGamepad.buttons);
     document.getElementById('input-mode').textContent = 'Keyboard';
   }
+
+  // Keep sending while a key is held. The simulator drops the command
+  // command_timeout (0.5 s, see sample_robot.simulation.xacro) after the last
+  // cmd_vel, so publishing once on keydown accelerated the robot for half a
+  // second and then let it coast to a stop, about 10 cm per press. The gamepad
+  // path already resends every animation frame; this is the same idea, at a
+  // rate that leaves plenty of margin against the timeout.
+  const KEYBOARD_PUBLISH_HZ = 30;
+  setInterval(() => {
+    if (heldKeys.size) updateFromKeyboard();
+  }, 1000 / KEYBOARD_PUBLISH_HZ);
 
   function publishJoy(axes, buttons) {
     const joyMessage = new ROSLIB.Message({
