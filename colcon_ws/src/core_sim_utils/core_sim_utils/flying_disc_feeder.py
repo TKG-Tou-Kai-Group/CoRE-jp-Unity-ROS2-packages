@@ -106,6 +106,7 @@ class FlyingDiscFeeder(Node):
         self.alive = collections.deque()   # 生成順。FIFO の対象
         self.serial = 0
         self.busy = set()       # 補充処理中の機体 (二重生成を防ぐ)
+        self.seeded = set()     # 一度でも装填できた機体 (タイマー経路から外す)
         self.loader_pos = {}    # robot -> 装填機構の位置 [m]
 
         for name in self.robots:
@@ -123,7 +124,13 @@ class FlyingDiscFeeder(Node):
         self.deleter = self.create_client(DeleteEntity, '/delete_entity')
         self.states = self.create_client(GetEntitiesStates, '/get_entities_states')
 
-        # 起動直後は機体がまだ居ないので、生えてきた機体へ順に 1 枚ずつ入れる。
+        # 生えてきた機体へ最初の 1 枚を入れる。以降の補充は引き戻しの合図
+        # (on_command) だけが行う。
+        #
+        # 以前はこのタイマーが補充の 2 つ目の引き金として回り続けていた。
+        # ストローク周期 (押し 0.6 s + 引き 1.6 s = 2.2 s) と 2 秒が近いため、
+        # 位相がずれ続けて装填機構が通路に出ている瞬間にも発火する。実測では
+        # 48 ストロークに対して 55〜58 枚が生成されていた。
         self.create_timer(2.0, self.top_up_all)
         self.get_logger().info(
             f'待機中: 機体 {len(self.robots)} 台 / 場のディスク上限 {self.max_alive} 枚')
@@ -284,10 +291,17 @@ class FlyingDiscFeeder(Node):
     # ---- 供給と間引き ---------------------------------------------------
 
     def top_up_all(self):
+        """まだ 1 枚も入っていない機体に最初の 1 枚を入れる。
+
+        既に装填できた機体には触らない。以降の補充は引き戻しの合図が担う。
+        撃った直後で装填口が空でも、次の引き戻しで必ず入るので取り残されない。
+        """
         for robot in self.robots:
             with self.lock:
                 if robot not in self.pose:
                     continue    # まだ生えていない機体は飛ばす
+                if robot in self.seeded:
+                    continue
             threading.Thread(target=self.top_up, args=(robot,), daemon=True).start()
 
     def top_up(self, robot):
@@ -302,8 +316,15 @@ class FlyingDiscFeeder(Node):
                 return
             self.busy.add(robot)
         try:
-            # 装填機構が通路から抜けるまで待つ。抜ける前に置くと弾かれる。
-            self.wait_loader_home(robot)
+            # 装填機構が通路から抜けるまで待つ。抜ける前に置くと、ローダーの
+            # 実体と重なった状態でディスクが出現し、貫入を解消する力積で後ろへ
+            # 吹き飛ぶ。待ち切れなかったときは生成しない。以前は戻り値を見ずに
+            # そのまま生成しており、余分な生成数と後ろへ飛んだ弾の数が実測で
+            # ほぼ一致していた (48 ストロークで +7 枚 / 後ろへ 5 発)。
+            if not self.wait_loader_home(robot):
+                self.get_logger().warning(
+                    f'{robot}: 装填機構が引き切らないので補充を見送る')
+                return
             target = self.chute_pose(robot)
             if target is None:
                 return
@@ -317,6 +338,8 @@ class FlyingDiscFeeder(Node):
                         f'{robot}: 装填口に {name} が居るので補充しない')
                     return
             if self.spawn_one(robot):
+                with self.lock:
+                    self.seeded.add(robot)
                 self.trim()
         finally:
             with self.lock:
