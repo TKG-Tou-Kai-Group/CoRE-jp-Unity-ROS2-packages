@@ -174,6 +174,23 @@ def summarise(tracks, launch, shots, label):
     print(f'  方位  中央 {azim[mid]:+6.1f} deg  範囲 {azim[0]:+.1f}〜{azim[-1]:+.1f} (正が左)')
     print(f'  速さ  中央 {speeds[mid]:6.1f} m/s (理論 {THEORY_SPEED:.0f})  '
           f'破綻 {len(blown)} 発')
+
+    # 中央と範囲だけだと「大半は揃っていて数発が暴れている」のか「全体に散って
+    # いる」のかが区別できない。範囲は外れ弾 1 発に支配されるので、射出ごとの
+    # 値を速さの順に並べて出す。射出輪の片側だけで蹴られた弾は速さが落ちて方位が
+    # 散るので、この並びで見れば両者が対応しているかがそのまま読める。
+    per_shot = sorted(
+        (math.sqrt(vf ** 2 + vl ** 2 + vz ** 2),
+         math.degrees(math.atan2(vl, vf)),
+         math.degrees(math.atan2(vz, math.hypot(vf, vl))))
+        for vf, vl, vz in vals)
+    print('  射出ごと (速さの順):')
+    for sp, az, el in per_shot:
+        print(f'      {sp:6.1f} m/s   方位 {az:+7.1f}   仰角 {el:+6.1f}')
+    if len(azim) >= 4:
+        q1, q3 = azim[len(azim) // 4], azim[(3 * len(azim)) // 4]
+        print(f'  方位の四分位  {q1:+.1f} 〜 {q3:+.1f} (幅 {q3 - q1:.1f} deg)')
+
     return {
         'flown': len(flown), 'backward': len(backward),
         'elev_med': elev[mid], 'elev_span': elev[-1] - elev[0],
