@@ -14,11 +14,11 @@ tools/robot_<N>_control.html がこの経路で映像を受け取る。
     ROS の image_compressed (JPEG)
       -> cv2 で復号
       -> ffmpeg (libx264, zerolatency) へ生フレームを流し込む
-      -> Annex-B の NAL を読み出す
-      -> WebSocket でブラウザへ
+      -> Annex-B をアクセスユニット (1 枚ぶん) に組み直す
+      -> WebSocket でブラウザへ (1 枚 = 1 バイナリフレーム)
 
 WebSocket サーバは外部ライブラリを使わず自前で実装する (コンテナに websockets が
-入っていないため)。用途が「1 フレーム = 1 バイナリフレーム」の一方向配信なので、
+入っていないため)。用途が「1 枚 = 1 バイナリフレーム」の一方向配信なので、
 必要なのはハンドシェイクと送信だけで済む。
 """
 import argparse
@@ -41,6 +41,54 @@ from sensor_msgs.msg import CompressedImage, Image
 GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 
+def _nal_type(nal):
+    """開始コード付きの NAL から種別を取り出す。3 バイト / 4 バイトの両方に対応。"""
+    i = 4 if nal[:4] == b'\x00\x00\x00\x01' else 3
+    return nal[i] & 0x1f if len(nal) > i else 0
+
+
+def _take_nals(buf):
+    """完了した NAL を切り出す。最後の 1 個は次の開始コードが来るまで残す。
+
+    戻り値は (切り出した NAL の並び, 残り)。残りは必ず開始コードで始まる。
+    """
+    starts = []
+    i = 0
+    while True:
+        j = buf.find(b'\x00\x00\x01', i)
+        if j < 0:
+            break
+        # 直前が 0x00 なら 4 バイトの開始コード
+        starts.append(j - 1 if j > 0 and buf[j - 1] == 0 else j)
+        i = j + 3
+    if len(starts) < 2:
+        return [], buf
+    nals = [buf[a:b] for a, b in zip(starts, starts[1:])]
+    return nals, buf[starts[-1]:]
+
+
+def _starts_access_unit(nal, au_has_slice):
+    """この NAL が新しい 1 枚の先頭か。
+
+    - AUD (9) は常に境界
+    - SPS/PPS/SEI (7/8/6) は次の枚の頭に付くので、すでにスライスが来ていれば境界
+    - スライス (1/5) は first_mb_in_slice が 0 なら新しい枚の先頭。これは
+      slice_header の最初の ue(v) なので、NAL ヘッダの次のバイトの最上位ビットが
+      立っていれば 0 と判る (2 枚目以降のスライスは 0 にならない)
+    """
+    t = _nal_type(nal)
+    if t == 9:
+        return True
+    if not au_has_slice:
+        return False
+    if t in (6, 7, 8):
+        return True
+    if t in (1, 5):
+        i = 4 if nal[:4] == b'\x00\x00\x00\x01' else 3
+        return len(nal) > i + 1 and (nal[i + 1] & 0x80) != 0
+    return False
+
+
 class Encoder:
     """1 系統ぶんの H.264 符号化。ffmpeg を子プロセスとして持つ。"""
 
@@ -52,10 +100,25 @@ class Encoder:
              '-f', 'rawvideo', '-pix_fmt', 'bgr24',
              '-s', f'{width}x{height}', '-r', str(fps), '-i', '-',
              '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency',
+             # 4:2:0 を明示する。入力が bgr24 なので、放っておくと ffmpeg は
+             # libx264 が受け取れる形式のうち一番近い yuv444p を選び、
+             # High 4:4:4 Predictive のストリームになる。4:4:4 に対応した
+             # ハードウェアデコーダはほぼ無く、Windows の Chrome/Edge は
+             # これを復号できない (Linux の ffmpeg 復号は通ってしまうので
+             # 気づきにくい)。yuv420p なら Constrained Baseline に収まる。
+             '-pix_fmt', 'yuv420p',
+             # 1 スレッドで回す。zerolatency は sliced-threads を有効にするので、
+             # 放っておくと 1 枚がスレッド数ぶんのスライスに割れる (24 コアの
+             # マシンで 11 枚)。スライスが増えるほど圧縮率が落ちるうえ、
+             # 1 枚ぶんの切れ目が分かりにくくなる。
+             # sliced-threads=0 だと今度はフレーム並列になり、出力が 2 秒ぶん
+             # 遅れて使いものにならない。720p/10 fps の ultrafast なら 1 スレッドで
+             # 十分間に合う (実測 CPU 19.5% -> 8.2%、470 KiB -> 352 KiB、
+             # 最初の絵が出るまで 44 ms -> 20 ms)。
+             '-threads', '1',
              '-b:v', bitrate, '-maxrate', bitrate, '-bufsize', bitrate,
              # 鍵フレームを短い間隔で入れる。後から参加した視聴者が待たされないため。
              '-g', str(fps * 2), '-keyint_min', str(fps),
-             '-bsf:v', 'h264_mp4toannexb' if False else 'null',
              '-f', 'h264', '-'],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL, bufsize=0)
@@ -64,23 +127,53 @@ class Encoder:
         threading.Thread(target=self._reader, daemon=True).start()
 
     def _reader(self):
-        """Annex-B の開始コードで区切って NAL 単位に切り出す。"""
+        """Annex-B を読み、アクセスユニット (1 枚ぶん) にまとめて送る。
+
+        ブラウザの VideoDecoder は 1 チャンク = 1 アクセスユニットを前提に
+        する。以前はここで NAL を 1 個ずつ送り、ブラウザ側が「スライス NAL が
+        来たら 1 枚の終わり」と推測して組み立てていたが、これが成立しない。
+
+        - 開始コードは 3 バイトと 4 バイトが混ざる。x264 は SPS/PPS と
+          ピクチャ先頭のスライスだけ 4 バイトで書く
+        - 1 枚が複数スライスに割れることがある (sliced-threads)
+
+        そのため IDR の直後に次の P が繋がった不正なチャンクがブラウザへ
+        渡り、ハードウェア復号を使う環境 (Windows の Chrome/Edge) では
+        デコーダが即座にエラーで閉じていた。境界はここで決める。
+        """
         buf = b''
+        au = []              # 組み立て中のアクセスユニット
+        au_has_slice = False
         while True:
             chunk = self.proc.stdout.read(4096)
             if not chunk:
-                return
+                break
             buf += chunk
-            # 次の開始コードまでをひとまとまりとして送る
-            while True:
-                idx = buf.find(b'\x00\x00\x00\x01', 4)
-                if idx < 0:
-                    break
-                nal, buf = buf[:idx], buf[idx:]
-                if nal:
-                    self.bytes_out += len(nal)
-                    self.packets += 1
-                    self.on_packet(self.name, nal)
+            nals, buf = _take_nals(buf)
+            for nal in nals:
+                if _starts_access_unit(nal, au_has_slice):
+                    self._emit(au)
+                    au, au_has_slice = [], False
+                au.append(nal)
+                if _nal_type(nal) in (1, 5):
+                    au_has_slice = True
+        # 最後の NAL は次の開始コードが来ないので buf に残ったままになる。
+        # ffmpeg が終わったときだけ通る道だが、取りこぼすと 1 枚欠ける。
+        if buf:
+            if _starts_access_unit(buf, au_has_slice):
+                self._emit(au)
+                au = []
+            au.append(buf)
+        self._emit(au)
+
+    def _emit(self, nals):
+        """1 枚ぶんをまとめて 1 つの WebSocket フレームで送る。"""
+        if not nals:
+            return
+        au = b''.join(nals)
+        self.bytes_out += len(au)
+        self.packets += 1
+        self.on_packet(self.name, au)
 
     def feed(self, frame_bgr):
         try:
@@ -303,7 +396,7 @@ def main(args=None):
         print('  JPEG 復号: 合計 %.1f 秒 (1 枚 %.1f ms)'
               % (node.decode_s, node.decode_s / max(node.jpeg_frames, 1) * 1000))
     print('=== 出力 (H.264) ===')
-    print('  %d NAL / %.2f Mbps (%d 系統)'
+    print('  %d 枚 / %.2f Mbps (%d 系統)'
           % (enc_pkts, h264_mbps, len(node.encoders)))
     node.destroy_node()
     rclpy.shutdown()

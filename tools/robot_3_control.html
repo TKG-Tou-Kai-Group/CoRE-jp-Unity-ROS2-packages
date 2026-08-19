@@ -357,14 +357,21 @@
 
   // ===== Video (H.264 over WebSocket) =====
   // The operator_stream node encodes the composed operator view and pushes one
-  // Annex-B NAL per WebSocket frame. VideoDecoder wants a whole access unit, so
-  // the NALs are gathered until the next slice begins.
+  // whole access unit - one picture - per WebSocket frame, which is exactly what
+  // VideoDecoder wants, so a message goes straight into the decoder.
+  //
+  // Cutting pictures apart used to happen here, by treating a slice NAL as the
+  // end of a picture. That guess does not hold: x264 writes some start codes
+  // with three bytes and some with four, and one picture can be split into
+  // several slices, so an IDR and the P frame after it landed in the same
+  // chunk. Software decoders muddled through; the hardware decoder that
+  // Chrome/Edge pick on Windows rejected it and closed the decoder for good.
   //
   // This socket is independent of rosbridge: video keeps running even while the
   // control link reconnects, and vice versa.
   const vctx = videoStream.getContext('2d');
   let videoWs = null, decoder = null;
-  let pendingNals = [], haveKeyframe = false;
+  let haveKeyframe = false;
   let vFrames = 0, vBytes = 0, vLastStat = performance.now();
 
   function setVideoStatus(text, cls) {
@@ -373,53 +380,45 @@
     el.className = cls;
   }
 
-  function nalType(nal) {
-    let i = 0;
-    if (nal[0] === 0 && nal[1] === 0 && nal[2] === 0 && nal[3] === 1) i = 4;
-    else if (nal[0] === 0 && nal[1] === 0 && nal[2] === 1) i = 3;
-    return nal[i] & 0x1f;
-  }
-
-  function flushAccessUnit() {
-    if (!pendingNals.length || !decoder) return;
-    const total = pendingNals.reduce((n, a) => n + a.length, 0);
-    const buf = new Uint8Array(total);
-    let off = 0;
-    for (const a of pendingNals) { buf.set(a, off); off += a.length; }
-    pendingNals = [];
-
-    const types = [];
-    for (let i = 0; i + 4 < buf.length; i++) {
-      if (buf[i] === 0 && buf[i + 1] === 0 && buf[i + 2] === 0 && buf[i + 3] === 1) {
-        types.push(buf[i + 4] & 0x1f);
-        i += 3;
+  // 7 = SPS, 5 = IDR slice. Either one means the picture stands on its own.
+  // Start codes come in both three- and four-byte forms, so scan for the
+  // three-byte prefix, which the four-byte one also contains.
+  function isKeyAccessUnit(au) {
+    for (let i = 0; i + 3 < au.length; i++) {
+      if (au[i] === 0 && au[i + 1] === 0 && au[i + 2] === 1) {
+        const t = au[i + 3] & 0x1f;
+        if (t === 5 || t === 7) return true;
+        i += 2;
       }
     }
-    // 5 = IDR slice, 7 = SPS. Feeding delta frames before a keyframe produces
-    // a broken picture, so they are dropped until the first one arrives.
-    const isKey = types.includes(5) || types.includes(7);
-    if (!haveKeyframe && !isKey) return;
-    haveKeyframe = true;
-
-    try {
-      decoder.decode(new EncodedVideoChunk({
-        type: isKey ? 'key' : 'delta',
-        timestamp: performance.now() * 1000,
-        data: buf,
-      }));
-    } catch (e) {
-      setVideoStatus('Decode error', 'status-ng');
-      console.error('decode failed:', e);
-    }
+    return false;
   }
 
-  function startVideo() {
-    if (!('VideoDecoder' in window)) {
-      setVideoStatus('No WebCodecs', 'status-ng');
-      console.error('This browser has no WebCodecs support (Chrome/Edge 94+, Firefox 130+).');
-      return;
+  // The codec string is read out of the SPS rather than hardcoded. The three
+  // bytes after the SPS NAL header are profile_idc, the constraint flags and
+  // level_idc, which is exactly what avc1.PPCCLL spells out.
+  //
+  // Hardcoding Baseline here used to paper over a real mismatch: the encoder
+  // takes bgr24 in, so ffmpeg picked yuv444p and produced a High 4:4:4
+  // Predictive stream (avc1.F4001F) while this page asked for avc1.42E01F.
+  // Software decoders decode it anyway; the hardware decoder Chrome/Edge use
+  // on Windows has no 4:4:4 support at all and fails immediately.
+  function codecFromSps(au) {
+    for (let i = 0; i + 6 < au.length; i++) {
+      if (au[i] === 0 && au[i + 1] === 0 && au[i + 2] === 1) {
+        if ((au[i + 3] & 0x1f) === 7) {
+          let s = 'avc1.';
+          for (let k = 4; k <= 6; k++) s += au[i + k].toString(16).padStart(2, '0');
+          return s.toUpperCase().replace('AVC1', 'avc1');
+        }
+        i += 2;
+      }
     }
-    decoder = new VideoDecoder({
+    return null;
+  }
+
+  function makeDecoder() {
+    const d = new VideoDecoder({
       output: (frame) => {
         if (videoStream.width !== frame.displayWidth) videoStream.width = frame.displayWidth;
         if (videoStream.height !== frame.displayHeight) videoStream.height = frame.displayHeight;
@@ -431,30 +430,70 @@
       error: (e) => {
         setVideoStatus('Decoder error', 'status-ng');
         console.error('decoder error:', e);
+        // A decoder that errored is closed for good, so build a fresh one and
+        // wait for the next keyframe instead of leaving the picture frozen.
+        if (decoder === d) {
+          decoder = null;
+          haveKeyframe = false;
+          setTimeout(() => { if (!decoder) decoder = makeDecoder(); }, 500);
+        }
       },
     });
-    decoder.configure({ codec: 'avc1.42E01F', optimizeForLatency: true });
+    // configure() waits for the first SPS; see codecFromSps.
+    return d;
+  }
+
+  function startVideo() {
+    if (!('VideoDecoder' in window)) {
+      setVideoStatus('No WebCodecs', 'status-ng');
+      console.error('This browser has no WebCodecs support (Chrome/Edge 94+, Firefox 130+).');
+      return;
+    }
+    decoder = makeDecoder();
 
     setVideoStatus('Connecting...', 'status-warn');
     videoWs = new WebSocket(`ws://${SERVER_ADDRESS}:${VIDEO_PORT}/${VIDEO_STREAM}`);
     videoWs.binaryType = 'arraybuffer';
     videoWs.onmessage = (ev) => {
-      const nal = new Uint8Array(ev.data);
-      vBytes += nal.length;
-      const t = nalType(nal);
-      const hasSlice = pendingNals.some(p => {
-        const pt = nalType(p);
-        return pt === 1 || pt === 5;
-      });
-      if ((t === 1 || t === 5) && hasSlice) flushAccessUnit();
-      pendingNals.push(nal);
-      if (t === 1 || t === 5) flushAccessUnit();
+      const au = new Uint8Array(ev.data);
+      vBytes += au.length;
+      if (!decoder) return;
+      if (decoder.state === 'unconfigured') {
+        const codec = codecFromSps(au);
+        if (!codec) {                 // no SPS yet, so the profile is unknown
+          setVideoStatus('Waiting for keyframe', 'status-warn');
+          return;
+        }
+        try {
+          decoder.configure({ codec, optimizeForLatency: true });
+          console.log('decoder configured as', codec);
+        } catch (e) {
+          setVideoStatus('Codec unsupported', 'status-ng');
+          console.error('configure failed for', codec, e);
+          return;
+        }
+      }
+      if (decoder.state !== 'configured') return;
+      const isKey = isKeyAccessUnit(au);
+      // Feeding delta frames before a keyframe produces a broken picture, so
+      // they are dropped until the first one arrives.
+      if (!haveKeyframe && !isKey) return;
+      haveKeyframe = true;
+      try {
+        decoder.decode(new EncodedVideoChunk({
+          type: isKey ? 'key' : 'delta',
+          timestamp: Math.round(performance.now() * 1000),
+          data: au,
+        }));
+      } catch (e) {
+        setVideoStatus('Decode error', 'status-ng');
+        console.error('decode failed:', e);
+      }
     };
     videoWs.onerror = () => setVideoStatus('Video link error', 'status-ng');
     videoWs.onclose = () => {
       setVideoStatus('Video disconnected', 'status-ng');
       haveKeyframe = false;
-      pendingNals = [];
       // Come back on its own; the node may just be restarting.
       setTimeout(startVideo, 2000);
     };
